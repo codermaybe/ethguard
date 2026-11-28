@@ -1,6 +1,6 @@
 # 官方业务语义与 go-ethereum 覆盖政策
 
-状态：2026-11-28。原生 Client／EthClient 的 47 项业务方法名称集合已闭合。外围 `ethadapter` 的 47 项精确签名、三类 channel 订阅、`bind/v2.ContractBackend`／`DeployBackend` 消费及默认订阅预算已通过 S5／S6 本地验收与最终全仓普通／race。逐方法语义、真实 provider 与平台运行证据分别记账；Windows 真实 pipe 运行仍待 CI。
+状态：2026-11-28。原生 Client／EthClient 的 47 项业务方法名称集合已闭合。外围 `ethadapter` 的 47 项精确签名、三类 channel 订阅、`bind/v2.ContractBackend`／`DeployBackend` 消费及默认订阅预算已通过 S5／S6 本地验收与最终全仓普通／race。逐方法语义、真实 provider 与平台运行证据分别记账；PR #13 的 Windows adapter race 与真实 named pipe CI 已通过。
 
 ## 1. 三个调用表面，一个执行 owner
 
@@ -20,7 +20,7 @@
 
 `scripts/ethclient-method-diff.sh` 检查原生 view 名称集合，`TestEthClientBusinessSignatures` 检查项目类型合同；适配器的独立反射测试逐项比较锁定 geth 的精确参数、返回值与 variadic 签名。S5 包含 44 项非订阅方法，S6 补齐三项订阅。方法集合与编译接口不证明参数接受域或逐方法行为完全相同。
 
-S5 独立 26 项顶层合同测试及 adapter／methods／facade／root 四包 race 通过。测试覆盖精确签名、五类真实签名交易、历史 high-s 与大整数、全字段 Header、完整块内容根及 uncle、HTTP 实际请求、同步发送一次性与审计隔离。Windows 适配器测试仅交叉编译通过，未实际运行。
+S5 独立 26 项顶层合同测试及 adapter／methods／facade／root 四包 race 通过。测试覆盖精确签名、五类真实签名交易、历史 high-s 与大整数、全字段 Header、完整块内容根及 uncle、HTTP 实际请求、同步发送一次性与审计隔离。后续 PR #13 的 Windows job `140931942348` 已实际通过 adapter 整包 race 与真实 named pipe 测试。
 
 验收同时修复核心 typed `FeeHistory` 的既有 wire 问题：blockCount 统一发送十六进制数量字符串，lastBlock 复用公共标签转换；root／view／adapter 三表面与合法标签、未知负值的 18 个子例通过。raw Call 原有数值输入接受域不变。
 
@@ -64,7 +64,7 @@ S5 验收覆盖 `bind/v2.DeployBackend` 与无订阅依赖的 `ethereum` 读写�
 
 业务收到重组终态后仍需自行回滚或回扫；停止流不会撤销已落库数据。需要完整原子 Retracted＋Appended 的调用方使用 `Core().Subscribe*`。预算数值与原生所有权、终态及关闭边界归[订阅合同](subscription-contract.md)，实施门禁见[接入设计](access-plane-ipc-adapter.md#6-默认订阅策略与-ethadapter-channel-订阅桥合同)。
 
-HTTP、WSS、IPC 的请求、订阅、写入及派生入口分别验收。Unix IPC 已有本地真实 socket／混合传输证据；Windows named pipe 测试已接入 CI，实际运行仍待完成。普通调用通过不推出全部订阅或客户端互操作兼容，合成测试不改标为真实 provider 证据。
+HTTP、WSS、IPC 的请求、订阅、写入及派生入口分别验收。Unix IPC 已有本地真实 socket／混合传输证据；Windows named pipe 已通过 CI 实机运行，逐项证据见[接入验收记录](access-plane-ipc-adapter.md#pr-13-复验通过与合入-master2026-11-28)。普通调用通过不推出全部订阅或客户端互操作兼容，合成测试不改标为真实 provider 证据。
 
 ## 5. 升级与发布
 

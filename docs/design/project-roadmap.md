@@ -2,13 +2,13 @@
 
 本文可直接用于重启对话：说明当前架构、验收状态和独立未决事项，不依赖旧聊天、`docs/tmp/`或`/tmp`材料。具体业务合同由末尾链接的正式文档维护。
 
-**接入平面验收（2026-11-28）：S0–S6 已通过本地主控验收；PR #13 首轮 Linux 检查通过，Windows adapter 与 CodeQL 门禁尚未关闭。** [统一接入、IPC 与 ethadapter 合同](access-plane-ipc-adapter.md)已完成统一单／多源构造、单源 moving-tag Reference、端点及配置推导、不可变订阅能力、共享 WSS／IPC 双工核、47 项精确 geth 签名、严格转换与审计、默认订阅策略及三类 channel 桥。固定成员不降级、Forwarded 诚实状态、原生撤回终止和共享 Close 完成屏障均有独立反例。实现与正式文档已随 `06c78cd` 由用户推送并创建 PR。
+**接入平面验收（2026-11-28）：S0–S6 已通过本地及 PR #13 远端验收；Windows adapter、真实 named pipe 与 CodeQL 门禁已通过。** [统一接入、IPC 与 ethadapter 合同](access-plane-ipc-adapter.md)已完成统一单／多源构造、单源 moving-tag Reference、端点及配置推导、不可变订阅能力、共享 WSS／IPC 双工核、47 项精确 geth 签名、严格转换与审计、默认订阅策略及三类 channel 桥。固定成员不降级、Forwarded 诚实状态、原生撤回终止和共享 Close 完成屏障均有独立反例。实现及边界修复已以 `7fdda4b` 合入 master，保留阶段提交历史；当前准备 beta.4 的中英文 README 与发布文档，尚未发布。
 
 最终冻结的 841 个 Go／模块／CI 与 lint 输入无漂移。全仓普通／race 各 59 个测试包、10,433 个测试及子测试通过事件，另 8 包无测试，零失败、零跳过测试；Verification race 两次乱序复验通过。原生及 Windows build／vet、Windows 测试交叉编译、Plan 9 fallback 构建、默认／anvil lint、anvil 编译、tidy、生成 Go／audit 一致、actionlint及格式／diff门禁通过；govulncheck 为零可达漏洞。具体复现命令及范围见[最终验收记录](access-plane-ipc-adapter.md#8-最终本地验收与剩余平台门禁2026-11-28)。
 
 默认预算通过每块 240 笔交易／720 条日志、20 块原子重组和实际双请求并发，关闭后 Head／内容账本归零；测量是合成负载下的抽样保留额度，不是 RSS 或真实主网保证。验收期间发现并修复共享 typed FeeHistory 编码、streamrpc typed nil 清理、Head 主动关闭终态顺序及 Close 读锁范围回归；旧 fixture 随已冻结合同迁移。本轮没有新增 provider 采集、真实 Anvil 执行或正式发布。默认策略与桥接证据见[订阅合同](subscription-contract.md)，设计决定见 ADR 0076–0081。下文保留前序架构阶段记录，其“本轮”范围不替代本次验收。
 
-**PR #13 跟进：** CI run `46126656746` 的 Windows build／vet 和共享双工／IPC 整包 race 通过，adapter race 失败，后续显式 named pipe 步骤跳过。用户提供日志后，确认测试错误拒绝合法的零审计耗时，已修正为仅拒绝负值；零／负值确定性反例、审计 race 10 轮及 adapter 整包 race 208 个通过事件、lint 均通过。CodeQL 三条告警对应请求拼装与 IPC 追加换行两处容量加法，已完成整数上界检查及本地普通／race、386 边界、lint／vet 和架构门验收。用户已授权将补丁和验收记录随本次提交保存，未推送；Windows 整体与 CodeQL 结果须远端重跑确认。逐项证据见[PR 首轮远端检查与容量修复](access-plane-ipc-adapter.md#pr-13-首轮远端检查与容量修复2026-11-28)。
+**PR #13 复验：** 修复提交 `3fdb6b7` 的 CI run `46129611512` 全部必需检查通过，CodeQL 汇总成功。Windows job `140931942348` 的 adapter race 与独立真实 named pipe 步骤均成功，关闭首轮失败；完整经过见[复验与合并记录](access-plane-ipc-adapter.md#pr-13-复验通过与合入-master2026-11-28)。beta.4 发布绑定最终 master SHA，需要另跑发布质量门禁、API diff、fuzz、构建及 Environment 审批。
 
 **同日独立终审追加修复：** 已用公开入口反例复现并修复 adapter 的 earliest `-5` 漏映射及 event／terminal 审计继承 setup 取消期限；预算首因三种确定性交错符合既有合同，Err 租约仅澄清缓冲发布移交点。仅两个 adapter 生产文件改变，补丁后主控 adapter 整包 race 208 个通过事件、零失败／跳过，lint／vet通过；独立回归先红后绿。上段全仓 10,433 事件属于补丁前完整基线，不冒充再次全仓执行；追加证据见[接入设计](access-plane-ipc-adapter.md#独立终审后的边界修复2026-11-28)。
 
@@ -18,7 +18,7 @@
 
 **前一架构阶段（2026-11-28）：目录与 SDK 职责收敛、对象旧入口删除、诊断执行身份收口及交易表示简化已通过独立组合验收，保存为 `58af037`。** 前轮生产基线 `f251f67` 的组合验收和对象分支 `10f3323` 的文档整理均已保留。主控负责规划、正式文档与独立验收，两个执行者承担互斥范围内的代码修改；下方“本轮减法与验收”保留该架构阶段的证据，不将其计为后续性能优化成果。
 
-本次已 fetch 并核对远端：`origin/master@c6855ca` 是 PR #12 的合并节点，文件树等于 `origin/audit/rpc-quality@3fba19c`。后续架构提交尚未进入该远端 master。当前接续分支为 `refactor/convergence-continuation`，合并节点 `de04b7d` 接合该 master 与对象分支 `10f3323`；引擎分支的等价改动没有重复拣选。`audit/rpc-quality` 保持 `f251f67`，不再在该分支提交；本轮未推送。
+当前远端 master 为 PR #13 的合并节点 `7fdda4b`，其文件树与修复提交 `3fdb6b7` 相同。历史合并 `de04b7d` 接合 PR #12 的 `c6855ca` 与对象分支，全部后续阶段提交保留在 master 历史；旧分支不再作为发布入口。中英文 README 和本次证据同步完成后，从 master 准备 `v0.0.1-beta.4`，用户负责远端推送与网页启动发布。
 
 ## 本轮减法与验收
 
@@ -58,7 +58,7 @@
 
 前轮 Linux build／vet、Windows amd64（CGO=0）交叉 build／vet、anvil 编译、默认／anvil 两路 lint 与 staticcheck 均通过；deadcode 仅报告原有 4 个测试接口 stub，无生产死码。此前 tidy 结果及独立 wiregen Go／audit 产物在该提交再次比对一致，全 Go 格式与 diff 检查通过。workflow 当时通过 actionlint／ShellCheck；本次 workflow 修改另行检查。anvil 当时仅编译，未执行本地链；本轮未新增真实 provider 观察。
 
-IPC 与 geth 类型适配在后续接入平面专题已按页首范围完成本地验收，Windows 运行门禁保持开放。完整 Simulate 语义、F1、共享 Hub／持久化、真实 provider／Anvil 执行及正式发布仍是独立议题。Head RequestTimeout 是否覆盖解码及等锁后的接纳仍属未决合同，未认定为生产缺陷，也未在本轮修改其行为。
+IPC 与 geth 类型适配在后续接入平面专题已按页首范围完成本地及远端验收，Windows 运行门禁已由 PR #13 实机测试关闭。完整 Simulate 语义、F1、共享 Hub／持久化、真实 provider／Anvil 执行及正式发布仍是独立议题。Head RequestTimeout 是否覆盖解码及等锁后的接纳仍属未决合同，未认定为生产缺陷，也未在本轮修改其行为。
 
 组合验收中已修复 Head 既有的 recovery exhausted 故障（`b7e0150`）：没有 Q target 时恢复双方祖先，不以旧 committed tip 截断搜索，ledger 不回退。组合普通验收还暴露了旧 WSS 绑定前预算失败的清理窗口：失败的建立尝试尚未退出时，后续未知通知可重新建立缓存。该行为在旧基线也能复现；`f251f67` 按仍活跃的建立尝试判断缓存归属，保留失败标记及其他活跃尝试的通知，并在最后一个活跃尝试结束后清理。独立回归控制 pump 退出先后，不把 `Err` 接收改成完成屏障；实际合同归 [WSS wire](wss-wire-contract.md)。
 

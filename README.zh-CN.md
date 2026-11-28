@@ -2,133 +2,310 @@
 
 [English](README.md) · **简体中文**
 
-EthGuard 查询第三方 Ethereum execution RPC，按方法语义返回多源结果、明确状态和来源证据。已有固定成员裁决、移动状态共同参考、原生 HTTP／raw WSS／本地 IPC、写入与订阅。
+EthGuard 是一个面向 Go 的**默认 fail-closed 多源以太坊执行层 RPC 客户端**。它按方法合同对节点响应执行 schema 校验与适用的密码学内容承诺检查，为移动状态读取（`latest`、`safe`、`finalized`）建立单次调用内的共同参考，并在构造期固定的 HTTP、WebSocket 与本地 IPC 来源集合上完成裁决。
 
-统一构造、配置推导、WSS／IPC 共享传输、公开生成模型及锁定 go-ethereum v1.17.10 的 47 项方法适配已通过本地验收与全仓普通／race。Windows named pipe 真实运行仍待 CI。逐方法和 provider 证据保留各自范围，不代表完整兼容或稳定发布。进度见 [路线图](docs/design/project-roadmap.md)，具体缺口见 [覆盖清单](docs/design/method-transport-coverage.md)。
+> **状态与保证边界**
+>
+> 统一构造、配置推导、原生 HTTP／raw WSS／Unix IPC 传输、生成 `ethapi` 标准模型以及锁定 `go-ethereum` v1.17.10 的 47 项 `ethadapter` 适配均已通过本地普通与 `-race` 验收；Windows named pipe 运行测试也已在 PR #13 的 `3fdb6b7` 提交 CI 中通过。
+>
+> `Corroborated` 表示**配置节点之间的交叉佐证（provider-backed cross-source evidence）**，不是以太坊共识、规范链成员、密码学最终性或运营者独立性的证明。
+> 完整 `SimulateV1` 语义与真实 provider 证据仍为独立验收专题；本预发布不宣称完整兼容或稳定发布。详见[方法覆盖清单](docs/design/method-transport-coverage.md)。
 
-`Corroborated` 是 provider-backed cross-source evidence，不是 Ethereum 共识、规范链、密码学最终性或来源独立性证明。Selected、Forwarded 保留各自保证范围。
+---
 
-## 使用
+## 安装
 
-按应用生命周期共享 Client，完成后关闭。连接惰性建立并复用，不按请求或 goroutine 新建 pool。
+需要 Go `1.26.11`（详见 `go.mod`）。示例面向 `v0.0.1-beta.4`。
+
+```sh
+go get github.com/codermaybe/ethguard@v0.0.1-beta.4
+```
+
+---
+
+## 快速上手（推荐从 `ethadapter` 开始）
+
+已有 `go-ethereum` 或 `bind/v2` 应用可通过 `ethadapter` 沿用熟悉的业务方法签名，同时按下文处理校验、错误和订阅行为差异。`ethadapter.Client` 精确实现了 `ethclient.Client` 的全部 47 项业务方法（不含底层 `Client() *rpc.Client`），直接满足 `bind/v2.ContractBackend` 与 `bind/v2.DeployBackend`。
 
 ```go
-client, err := ethguard.Dial("https://your-provider-a", "https://your-provider-b")
-if err != nil { return err }
+package main
+
+import (
+	"context"
+	"fmt"
+	"log"
+	"time"
+
+	"github.com/codermaybe/ethguard/ethadapter"
+	"github.com/ethereum/go-ethereum/common"
+)
+
+func main() {
+	// 传入 2 个及以上不同端点（HTTP / WSS / IPC 任意混用）自动进入多源 Majority 仲裁；
+	// 传入 1 个端点（如 "/var/run/geth.ipc"）自动进入单源 Forwarded 模式。
+	client, err := ethadapter.Dial(
+		"https://rpc-a.example",
+		"wss://rpc-b.example",
+		"/var/run/geth.ipc",
+	)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer client.Close() // 按应用生命周期共享一个客户端；连接惰性建立并复用。
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// 移动标签（nil / latest / safe / finalized）会先建立调用内共同参考再锚定读取。
+	bal, err := client.BalanceAt(ctx, common.HexToAddress("0x000000000000000000000000000000000000dead"), nil)
+	if err != nil {
+		log.Print(err)
+		return
+	}
+	fmt.Println("balance:", bal)
+}
+```
+
+### 按需选择调用表面
+
+底层永远只有**唯一执行所有者 `*ethguard.Client`**，上层提供三种形态，共享同一连接池与 `Close()` 生命周期：
+
+| 调用表面 | 导入路径／访问方式 | 适用场景 | 返回形态 |
+| --- | --- | --- | --- |
+| **`ethadapter.Client`** | `.../ethguard/ethadapter` | 既有 `go-ethereum` / `bind/v2` 应用直接迁移 | 原生 geth 类型（`*types.Block`、`common.Address`、`ethereum.Subscription`） |
+| **`ethguard.Client`** | `.../ethguard` | 需要逐次裁决证据、原生原子重组流、或零 geth 客户端依赖 | 生成 `ethapi` 模型 + `CallResult` + `error` |
+| **`ethguard.EthClient`** | `core.EthClient()` | 使用 `ethapi` 标准模型且不关心单次 `CallResult` 的轻量调用方 | 生成 `ethapi` 模型 + `error` |
+
+通过 `ethadapter.New(core)` 包装已有核心客户端，随时通过 `adapter.Core()` 回到原生 `*ethguard.Client`，不会新建第二套连接池。
+
+---
+
+## 常见使用方式
+
+### 1. 构造：单源／多源统一规则、Go 选项与极简 YAML
+
+所有构造入口遵循**同一条构造期确定规则**：
+
+- **0 个端点**或规范化后存在**重复端点** → 启动期直接报错。
+- **1 个端点** → 自动进入 `Forwarded` 模式（各方法的校验与完整性检查依然生效；成功读取的裁决诚实标为 `Forwarded`，绝不冒充 `Corroborated`）。
+- **2 个及以上不同端点** → 自动进入 `Majority` 模式（固定投票分母，最低支持门槛为 2）。**运行期即使上游掉线，多源客户端也绝不自动降级为单源模式。**
+
+构造默认采用**惰性连接**，后续调用按需建立连接；显式启用 `WithTipTracking` 会启动周期性后台探测。`DialContext`／`OpenContext` 仅在入口检查取消状态，不会将入参 `ctx` 绑定为客户端生命周期。`Dial` 不默认固定链 ID，需要时使用 `WithChainID` 或 YAML `chain_id`。
+
+```go
+// 多源 + Go 选项（链 ID 固定、结构化日志、finalized 锚定等，无需额外 import config）：
+core, err := ethguard.Open(
+	[]string{"https://rpc-a.example", "wss://rpc-b.example"},
+	ethguard.WithChainID(1),
+	ethguard.WithFinalizedAnchoring(), // 要求至少 2 个不同来源，单源构造期直接拒绝
+)
+if err != nil {
+	return err
+}
+client := ethadapter.New(core)
 defer client.Close()
-
-address := ethapi.Address("0x000000000000000000000000000000000000dead")
-balance, result, err := client.BalanceAt(ctx, address, nil)
 ```
 
-root 返回业务值、CallResult 和最终错误；CallResult 携带读取或广播证据、同步写入的有界收据观察及已保留材料，其 Err 与尾部错误一致。EthClient view 复用同一执行，仅省略 CallResult：
-
-```go
-view := client.EthClient()
-balance, err := view.BalanceAt(ctx, address, nil)
-```
-
-公开业务模型统一为生成 ethapi：Address／Hash、Block／Header／Transaction／Receipt／Log、CallMsg、查询与 Simulate 模型。它们与 geth Go 名义类型不同；需要 geth 业务类型时使用外围 ethadapter，其 47 项精确方法签名包含三类 channel 订阅，并满足 `bind/v2.ContractBackend` 和 `DeployBackend`。写入接受提供 MarshalBinary 的 BinaryTransaction；geth transaction 可以提供字节，不重新成为公开业务模型。
-
-
-已有 go-ethereum 查询与交易代码可通过适配器使用同一套执行：
-
-```go
-client, err := ethadapter.Dial("https://rpc-a.example", "https://rpc-b.example")
-if err != nil { return err }
-defer client.Close()
-balance, err := client.BalanceAt(ctx, common.HexToAddress("0x000000000000000000000000000000000000dead"), nil)
-```
-
-高级配置仍在 ethguard 完成，再以 `ethadapter.New(core)` 包装；`Core()` 返回同一个安全客户端。可选 WithAudit／WithLogger 观察转换与核心结果，外层 ethguard.WithResult 原样生效。非法值与内容承诺不符返回转换错误。具体转换和证据边界见[兼容合同](docs/design/go-ethereum-compatibility-policy.md)。
-
-适配器订阅使用固定默认策略及熟悉的 geth channel 签名。原生路径出现撤回时，包括零匹配日志块，桥统一以 `ethguard.ErrReorgDetected` 终止；调用方处理错误并自行回滚或回扫。需要完整原子路径变化与证明时，使用 `Core().Subscribe*`。
-
-一个端点自动进入 Forwarded，两个及以上不同端点进入 Majority：
-
-```go
-client, err := ethguard.Dial("https://your-provider")
-```
-
-空列表与重复端点身份直接拒绝；模式和成员在构造期固定，运行期掉源不会降级。多个 URL 不证明独立运营者。构造不联网，DialContext／OpenContext 仅在入口检查取消，不绑定客户端生命周期。链身份不隐式固定，可用 Open 传 WithChainID 或配置 chain_id。
-
-```go
-client, err := ethguard.Open([]string{"https://rpc-a.example", "https://rpc-b.example"}, ethguard.WithChainID(1))
-```
-
-## SDK边界与诊断
-
-公开SDK包括Client及EthClient view、生成ethapi模型、rpc数据合同、配置与观察值。pool、aggregator、方法计划、resolver、reference、transport和订阅状态机归各自internal owner；公开订阅类型直接alias唯一owner。原公开执行包和Client.Pool()已退出，不保留转发替身。
-
-client.Sources()按构造顺序返回成员身份与健康值快照。client.Sample(ctx, method, params...)采样当前可用来源：参数冻结一次，遵循Client生命周期、收集超时、cooldown与latest-tip gate，记录transport健康；不建立reference、不做方法准入或裁决。返回的响应字节完整且归调用方独占，收集错误可以与已有观察同时返回。诊断比较另用Normalize。
-
-## 配置
-
-```go
-client, err := ethguard.LoadFile("config.yaml")
-```
+或使用 YAML 配置——**`id` 与 `transport` 均可省略**：
 
 ```yaml
+# config.yaml
 chain_id: 1
 upstreams:
-  - endpoint: https://rpc-a.example
-  - endpoint: wss://rpc-b.example
+  - endpoint: https://rpc-a.example    # 自动推导：native-http，id: rpc-1
+  - endpoint: wss://rpc-b.example      # 自动推导：wss，id: rpc-2
+  - endpoint: /var/run/geth.ipc        # 自动推导：ipc，id: rpc-3（支持 Unix socket 与 \\.\pipe\...）
 ```
-
-transport 从 endpoint 推导：HTTP(S) 使用原生 HTTP，WS(S) 使用 raw WebSocket，明确本地路径或 ipc:// 地址使用 IPC；显式填写时必须匹配。id 省略时自动分配 rpc-1、rpc-2…，跳过显式占用的名称。规范化后重复端点直接拒绝。各类来源均参与固定成员读取与写入；更换成员需新建 Client。
-
-Open 直接接收端点列表与 Go 选项；config.FromEndpoints 和 ethguard.New 保留配置值入口。Go 链选项覆盖文件值。WithFinalizedAnchoring 要求至少两个不同来源，单源组合在构造期拒绝。可运行示例为 `go run ./examples/basic -config ./config.yaml`。
-
-## 结果、参考与材料
-
-多源模式下，确定性 typed 读取要求对应门槛，支持不足返回分类错误；Median／Local 保留各自选择合同。单源成功读取标为 Forwarded。通用只读 Call 按已注册合同执行，未知方法本地拒绝，不绕过准入或订阅建立。
-
-默认锚点策略下，latest／safe／finalized按原level建立调用内reference；显式WithFinalizedAnchoring则让default/latest使用finalized选择，safe保留自身level。显式pin不换块；reference失败不发业务请求，故障不缩冻结分母。pending-local是来源本地观察，多源同值也不升级Corroborated。
-
-单源 moving-tag 读取走同一个 ReferenceStage，以诚实的 Forwarded reference 固定业务请求。独立 AnchorBlockHash／AnchorBlockHashForTag／AnchorBlockHeight 仍要求 Corroborated。单源 TipTracking 可观察健康和报告高度，但不能证明相对同侪的新鲜度。
-
-完整block读取检查请求身份、适用header hash与body承诺（transaction／withdrawals root、uncle）；header-only不证明完整body。内容关系检查不证明canonical chain或finality。
-
-按调用开启原始材料与可选完成捕获：
 
 ```go
-base, err := ethguard.WithSourceEvidence(ctx, 64<<10)
-if err != nil { return err }
-callCtx, capture := ethguard.WithResult(base)
-block, result, err := client.BlockByNumber(callCtx, nil)
-_ = block
-_ = result
-saved, published, captureErr := capture.Result()
+core, err := ethguard.LoadFile("config.yaml")
+if err != nil {
+	return err
+}
+client := ethadapter.New(core)
+defer client.Close()
 ```
 
-仅在published且captureErr为nil时读取saved。直接结果仍是业务返回；capture错误表达交付事实，句柄只用一次。保留受byte／record／text上限和截断规则约束，预算耗尽不改变请求、票数或门槛。私有算法类型不能表达某字段，不构成将受保护字段降为可选原文的理由，详见 [返回值合同](docs/design/return-value-design.md)。
+端点语法说明：
 
-## 写入、订阅与生命周期
+- **HTTP(S) / WS(S)**：带完整协议和主机的 URL（`http://`、`https://`、`ws://`、`wss://`）。
+- **IPC**：明确的绝对路径（`/var/run/geth.ipc`）、明确的相对路径（`./geth.ipc`、`../geth.ipc`，构造期按当前 `cwd` 冻结为绝对目标）、`ipc:///abs/path` 或 Windows named pipe（`\\.\pipe\geth.ipc`）。有歧义的裸文件名（如 `geth.ipc`）与畸形 URL 均直接拒绝。
 
-写入校验冻结交易字节，并将来源报告的hash绑定到本地提交hash。WriteDecision分别记录接受状态、裁定原因及每个来源的通信、回答和方法判断。支持不足、合法异值、协议拒绝和foreign hash保持可区分；未确认结果不自动重放。
+### 2. 配合 `bind/v2` 合约绑定与读取 Revert 数据
 
-同步写入只广播一次，再轮询收据。CallResult.ReceiptWait保留最后尝试与最近形成的收据观察，各有自己的序号、Decision和错误。最后一次查询中断不会覆盖此前的null或冲突观察；操作Err只表达最终结论。这些事实不依赖可选原文预算，默认最多保留两个查询位置。库不签名、不选择gas、不分配nonce、不管理替换交易。
+```go
+// bind 导入自 github.com/ethereum/go-ethereum/accounts/abi/bind/v2。
+// mytoken 由 abigen --v2 为提供 totalSupply() 的合约生成。
+token := mytoken.NewMyToken()
+instance := token.Instance(client, tokenAddr)
+supply, err := bind.Call(instance, &bind.CallOpts{Context: ctx}, token.PackTotalSupply(), token.UnpackTotalSupply)
+if err != nil {
+	// 核心 RevertError 不伪造 RPC error code 3，请使用 ethadapter.RevertErrorData
+	//（或 errors.As 读取 *ethguard.RevertError），而非 ethclient.RevertErrorData。
+	if data, ok := ethadapter.RevertErrorData(err); ok {
+		log.Printf("contract reverted: 0x%x", data)
+	}
+	return err
+}
+fmt.Println("total supply:", supply)
+```
 
-root和view的SubscribeNewHead(ctx, policy)返回提供Next、Basis、Close的HeadSubscription。事件包含完整连续路径变化、重组撤回、冻结路径证人与审计记录；构造期声明支持有界订阅的固定成员提供多数支持，缺失对象按hash恢复，内存、通知队列和请求并发显式限额。多源 Client 仅一个可订阅来源会拒绝，单源 Client 保持 Forwarded。WSS 与 IPC 均支持订阅。Unix IPC 已通过本地测试，Windows named pipe 运行验收仍待 CI。
+### 3. 审计日志与按需获取多源证据（`WithAudit`、`WithResult`、`Core()`）
 
-SubscribeFilterLogs(ctx,query,policy)返回提供Next/Basis/CommittedTip/Close的LogsSubscription，已于2026-11-24通过本地验收：沿Head出生路径逐块交付全部匹配日志、零命中及完整块撤回，内容通过交易与收据承诺证明；数字/hash过滤只筛选实时路径、不补历史。
+在不破坏 `ethclient` 方法签名的前提下，随时观测多源投票结果、节点故障与类型转换省略清单：
 
-SubscribeTransactionReceipts(ctx,query,policy)使用ReceiptsSubscriptionPolicy，返回具有相同交付操作的ReceiptsSubscription。nil/空查询表示Head出生块起全量实时收据；完整交易/收据承诺证明覆盖范围，固定Q比较实际交付的官方字段，包括未被收据根覆盖的声明。BlockSupplier与ReceiptSupport分别记录这两种证据，不引入链配置或冒称独立执行证明。收据连续流已于2026-11-25通过本地验收。策略字段、审计导出与保证边界见 [订阅合同](docs/design/subscription-contract.md)。
+```go
+// 方式 A：全局结构化日志或自定义审计回调（WithAudit 优先于 WithLogger）：
+client := ethadapter.New(core, ethadapter.WithLogger(slog.Default()))
+// 或：
+client = ethadapter.New(core, ethadapter.WithAudit(func(ctx context.Context, ev ethadapter.AuditEvent) {
+	// ev.Method、ev.CallResult（核心 Decision/WriteDecision）、ev.ConversionReport、ev.CoreErr、ev.AdapterErr
+}))
 
-原生调用方可直接使用 `ethguard.DefaultHeadSubscriptionPolicy()`、`DefaultLogsSubscriptionPolicy()` 或 `DefaultReceiptsSubscriptionPolicy()`，也可按需调整返回的结构体。手工构造的全零策略仍会被拒绝。默认值是有界准入额度，不是预分配内存；测量负载和限制见订阅合同。
+// 方式 B：单次调用捕获核心结果（外层 WithResult 绝不会被 ethadapter 遮蔽）：
+base, err := ethguard.WithSourceEvidence(ctx, 64<<10) // 可选：按字节预算保留原始节点响应
+if err != nil {
+	return err
+}
+callCtx, capture := ethguard.WithResult(base)
+block, err := client.BlockByNumber(callCtx, nil)
+saved, published, captureErr := capture.Result()
+if captureErr != nil {
+	log.Printf("result capture: %v", captureErr)
+} else if published && saved.Decision != nil {
+	// saved.Decision 始终反映核心真实结论（即使适配器后置转换失败也不改写核心结果）。
+	fmt.Printf("status=%s support=%d/%d\n",
+		saved.Decision.Status, len(saved.Decision.Support), saved.Decision.Adjudication.Basis)
+}
+if err != nil {
+	return err
+}
+fmt.Println("block:", block.Hash())
+```
 
-WSS与IPC共用ID demux与有界通知；adapter不自动重连／replay，root订阅worker可以重建来源会话。不承诺通用keepalive或无限恢复。HTTP/WSS错误presence、合成测试和真实provider观察分别记账。
+方法返回的错误仍是业务结论；capture 错误仅描述证据交付。每个 capture 只能用于一次调用。原始材料受字节、记录数与文本长度限制；截断不改变投票或门槛。
 
-任一 facade Close 停止共享 Client，新请求在网络前失败，在途公开操作随 owner 结束。适配器订阅自动登记到共享客户端；Unsubscribe、adapter.Close 和 Core.Close 均解除发送阻塞，并等待原生清理、交付任务及 Err 关闭，即使调用方永久不读 channel。库不关闭调用方 channel，完成关闭屏障后不再发送。直接创建的原生流仍需各自调用 HeadSubscription.Close、LogsSubscription.Close 或 ReceiptsSubscription.Close，等待任务与 owner watcher 退出。原生主动关闭或 Next 取消放弃未读事件；生产失败先排空已提交事件，再交付带审计的终态错误。独立 Terminated／TerminalError 观察不等待排空，该流的 Close 仍等待清理完成。
+### 4. 订阅：geth Channel 桥 vs. 原生原子重组增量流
 
-## 模块与验证
+仅在构造期声明支持有界订阅的来源（**WSS** 与 **IPC**）参与订阅。多源客户端若只包含 1 个可订阅来源会本地拒绝，不静默降级为单源订阅。
 
-唯一生产装配位于internal/runtime；rpc只拥有公开请求、响应、裁定与证据数据合同及纯值函数。internal/rpcengine拥有Resolver、执行计划与裁决算法，internal/methods拥有方法语义，internal/projection装配官方字段投影，internal/aggregator编排调用，internal/pool拥有成员／收集／健康，internal/reference通过注入能力选择head。ethapi与internal/ethcodec提供模型和原语，internal/ethobject单树拥有绑定与对象保护，internal/typed只有一份生产投影。internal/transport与internal/subscription分别拥有协议和流，原生传输共用internal/rpcwire信封及错误保真。internal/uncertain拥有材料保留与预算，observe拥有被动事件及健康快照。
+**方式 A — 熟悉的 geth Channel 订阅（`ethadapter`）**
 
-外围 ethadapter 只通过公开核心合同提供 geth 类型、严格转换、可选审计与有界 channel 交付；共享客户端拥有执行与关闭登记，适配器不另建连接池或投票器。
+无需手填内存预算，内部使用经代表性大区块负载实测验收的默认策略。由于 geth channel 无法表达原子撤回，**一旦原生路径出现任何撤回（含零匹配日志块），桥接器确定性终止并在 `sub.Err()` 返回 `ethguard.ErrReorgDetected`**，由业务方执行回滚／回扫并重连。
 
-root读取按state_reads.go、block_reads.go、transaction_reads.go归组；contract_execution.go拥有call、gas、fee与access-list，simulate.go拥有模拟，read_helpers.go集中typed读与输入辅助。ethclient_view.go全部直接调用相同私有实现；block与header各自保留投影与错误合同。internal/diag集中livecanary、shapeprobe、rpcsample/replay、chainlist及活动fixture，核心生产包不得反向导入该树；cmd、internal/verification、internal/testkit与rpctest分别保留命令、公开验证和本地测试能力。
+传给 `Subscribe*` 的 context 仅约束建立阶段。已建立的桥通过 `Unsubscribe` 或 `Close` 停止；下方循环还会响应应用 context 结束。若关闭或其他故障已先确定终态，后到的撤回不会覆盖此前原因。
 
-从 [文档导航](docs/design/README.md)进入完整现行合同。历史decision供追溯，不是另一份执行计划。公共管线、响应模型、read精调、同步写入及NewHead已验收；其余方法、运行期专题和外部证据按路线图独立推进。
+```go
+headers := make(chan *types.Header, 16)
+setupCtx, cancelSetup := context.WithTimeout(ctx, 10*time.Second)
+sub, err := client.SubscribeNewHead(setupCtx, headers)
+cancelSetup()
+if err != nil {
+	return err
+}
+defer sub.Unsubscribe() // client.Close() / client.Core().Close() 也会等待交付协程完全退出，即使未读取 headers。
 
-默认测试离线；Anvil与provider采集显式运行。本地链／合成通过不关闭外部缺口；canary passed、workflow成功和发布批准分别表达。正式门禁、固定工具和产物流程仅在 [发布合同](docs/design/release-contract.md)维护。
+for {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case h := <-headers:
+		fmt.Println("new head:", h.Number, h.Hash())
+	case err := <-sub.Err():
+		if errors.Is(err, ethguard.ErrReorgDetected) {
+			// 终止订阅不会自动撤销业务已处理的状态，请在此执行回滚或回扫。
+			return handleReorgAndResync(ctx)
+		}
+		return err
+	}
+}
+```
+
+**方式 B — 原生原子重组增量流（`ethguard`）**
+
+需要连续获取原子 `Retracted` + `Appended` 路径增量与结构化证据时，直接调用 `Core().SubscribeNewHead`、`SubscribeFilterLogs` 或 `SubscribeTransactionReceipts`。Logs／Receipts 流按需针对已接受的头验证完整内容承诺；这证明内容关系，不证明共识或最终性。在配置的恢复与资源边界内，重组可通过增量交付而无需终止流：
+
+```go
+query, err := ethapi.NewFilterQuery([]byte(`{}`)) // 原生 ethapi 查询，不是 ethereum.FilterQuery
+if err != nil {
+	return err
+}
+policy := ethguard.DefaultLogsSubscriptionPolicy() // 推荐默认预设，可按需微调单个字段
+sub, err := client.Core().SubscribeFilterLogs(ctx, query, policy)
+if err != nil {
+	return err
+}
+defer sub.Close()
+
+for {
+	ev, err := sub.Next(ctx)
+	if err != nil {
+		return err
+	}
+	// 原子应用 ev.Path.Retracted 与 ev.Path.Appended。
+	applyDelta(ev.Path.Retracted, ev.Path.Appended)
+}
+```
+
+这些流从出生锚点开始，不自动补播更早历史；历史回填使用查询方法。
+
+### 5. 直接使用原生 `ethguard.Client` 与内建诊断
+
+若希望业务代码完全不引入 `go-ethereum` 客户端／适配器依赖，可直接使用根包 `ethguard` 与生成的 `ethapi` 标准模型：
+
+```go
+core, err := ethguard.Dial("https://rpc-a.example", "https://rpc-b.example")
+if err != nil {
+	return err
+}
+defer core.Close()
+
+// 根方法返回 (业务值, CallResult, error)；core.EthClient() 返回 (业务值, error)。
+bal, res, err := core.BalanceAt(ctx, ethapi.Address("0x000000000000000000000000000000000000dead"), nil)
+_, _, _ = bal, res, err
+
+// 内建只读诊断（不暴露底层 pool/transport 逃生口）：
+snapshots := core.Sources()                           // 构造顺序的成员身份与健康快照
+rawObs, sampleErr := core.Sample(ctx, "eth_chainId")  // 原始逐源 rpc.Response，不走裁决
+_, _, _ = snapshots, rawObs, sampleErr
+```
+
+可运行示例：`go run ./examples/basic -config ./config/sample.yaml` 与 `go run ./examples/migration -config ./config/sample.yaml`。
+
+---
+
+## 核心保证与 `go-ethereum` 行为边界
+
+常见查询、合约调用和已签名交易发送沿用熟悉的 `go-ethereum` 接口；在涉及多源一致性与安全性的位置保持显式 fail-closed 行为：
+
+- **移动标签与共同参考**：`nil`／`latest`／`safe`／`finalized` 先在本次调用内建立参考，再锚定业务读取。多源下参考建立失败绝不发业务请求；单源下走同一阶段产生诚实的 `Forwarded` 参考。独立 `AnchorBlockHash*`／`AnchorBlockHeight` 始终要求 `Corroborated`。`WithFinalizedAnchoring` 将默认／`latest` 路由至 finalized 候选确认算法（要求至少 2 个来源）。
+- **内容与密码学校验**：完整区块读取校验 header hash 与适用的交易、withdrawals、uncle 承诺；`ethadapter` 通过 `Decision.Provenance` 还原 `*types.Block` 的 uncle headers。普通收据／日志查询校验其合同规定的字段和请求绑定，不证明收据 trie 包含关系。Logs／Receipts 内容流额外针对已接受的头验证适用的根；`ReceiptsRoot` 未覆盖的字段（如 `effectiveGasPrice`）仍是按方法规则裁决的来源声明。非法输入、校验失败或支持不足返回转换错误或分类核心错误，详见[方法合同](docs/design/method-contracts.md)。
+- **Pending 选择**：`PendingBalanceAt`、`PendingNonceAt`、`PendingStorageAt`、`PendingCodeAt`、`PendingCallContract` 与 `PendingTransactionCount` 作为来源本地观察执行（最高 `Selected`，绝不升级 `Corroborated`）。typed `BlockByNumber(-1)`、`HeaderByNumber(-1)`、`BlockReceipts` 与 `FilterLogs` 的 pending 本地拒绝。
+- **写入与同步写入**：`SendTransaction`／`SendRawTransaction` 本地校验冻结签名字节、将节点返回 hash 绑定到本地提交 hash，向固定成员广播且绝不自动重放。`SendTransactionSync`／`SendRawTransactionSync` 执行一次广播加客户端侧收据轮询（在 `CallResult.ReceiptWait` 保留有界观察），不等同服务端 `eth_sendRawTransactionSync`。
+- **生命周期**：任一表面调用 `Close()` 即停止共享客户端。调用已关闭的核心会在网络前返回 `ErrPoolClosed`；本地输入校验可能先拒绝请求。在途操作随之收敛；`ethadapter` 订阅接入同一关闭屏障，即使调用方永久不读 channel 也能完整清理并关闭 `Err()`。库绝不关闭调用方持有的订阅 channel。
+
+---
+
+## 模块地图与文档索引
+
+| 包 | 职责 |
+| --- | --- |
+| `ethguard`（根包） | 公开 `Client`、`EthClient` 视图、`Dial`/`Open`/`New`/`LoadFile`、`CallResult`、`ResultCapture`、默认订阅策略、诊断（`Sources`/`Sample`） |
+| `ethadapter` | 外围 `go-ethereum` v1.17.10 适配层（47 项业务方法、严格转换、`RevertErrorData`、可选 `WithAudit`/`WithLogger`、channel 订阅桥）；核心包永不反向导入 `ethadapter` |
+| `ethapi` | 离线生成的 Execution APIs 标准模型与严格 JSON 构造器 |
+| `rpc` / `config` / `observe` | 公开请求／响应／裁决数据合同、YAML／端点配置规范化、被动观测与健康快照 |
+| `internal/runtime` | 唯一生产装配根（Composition Root） |
+| `internal/{rpcengine,aggregator,methods,projection,pool,reference}` | 执行计划、规范处理、裁决算法、固定成员池、参考选择 |
+| `internal/{ethobject,ethcodec,typed,uncertain,endpoint}` | 对象完整性与绑定单树、严格标量／JSON 原语、typed 投影、有界原始材料留存、端点解析 |
+| `internal/transport/{http,streamrpc,wss,ipc}` 与 `internal/rpcwire` | 原生 HTTP、共享双工 RPC 核、自有 RFC6455 WSS、Unix／Windows IPC、共用 JSON-RPC 编解码 |
+| `internal/subscription` | `Head`、`Logs`、`Receipts` 三类连续流的唯一执行 owner |
+| `internal/diag/*`、`cmd/*`、`rpctest`、`internal/verification/*` | 诊断工具（`livecanary`、`specsync`、`specdiff`、`soak` 等）与公开验证测试集 |
+
+完整现行合同入口见 **[文档导航](docs/design/README.md)**：
+
+- [项目路线图](docs/design/project-roadmap.md) — 当前进度与独立未决专题
+- [接入平面、IPC 与适配器合同](docs/design/access-plane-ipc-adapter.md) — 统一构造、IPC、`ethadapter` 与最终本地验收记录
+- [官方语义与 geth 兼容政策](docs/design/go-ethereum-compatibility-policy.md) 与 [方法覆盖清单](docs/design/method-transport-coverage.md)
+- [代码库拓扑](docs/design/codebase-topology.md)、[返回值合同](docs/design/return-value-design.md)、[Reference 合同](docs/design/reference-freshness-policy.md)、[订阅合同](docs/design/subscription-contract.md)、[Transport 合同](docs/design/transport-contract.md)、[WSS Wire 合同](docs/design/wss-wire-contract.md)、[生成合同](docs/design/wire-codegen.md)、[发布合同](docs/design/release-contract.md)
+
+默认测试（`go test ./...`）全程离线；Anvil（`-tags anvil`）、公网 Canary 与发布门禁为显式命令，详见 [发布合同](docs/design/release-contract.md)。

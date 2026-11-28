@@ -1,6 +1,6 @@
 # 用户接入平面、单源语义、IPC 与 `ethadapter` 设计合同
 
-状态：**S0–S6 已实施并通过本地验收**，2026-11-28；`06c78cd` 已由用户推送并创建 PR #13。首轮远端 Linux 检查通过，Windows 共享双工／IPC 包 race 通过，但 adapter 测试失败、独立 named pipe 步骤跳过。Windows 审计耗时测试断言与 CodeQL 两处容量计算已修复并通过本地验收，待推送重跑。Windows 整体验收仍未关闭，详情见第 8 节。
+状态：**S0–S6 已实施并通过本地及 PR #13 远端验收**，2026-11-28。修复提交 `3fdb6b7` 的 CodeQL、Linux CI、Windows adapter race 与真实 named pipe 测试全部通过；PR 已以 `7fdda4b` 合入 master。Windows 运行门禁已关闭；beta.4 尚待最终文档提交入远端 master 后执行独立发布门禁，详情见第 8 节。
 基线：`refactor/convergence-continuation`（`3e3f353` 之后；S0 `rpcwire.DecodeSubscriptionNotification` 与 WSS 通知版本校验及首次终止者/closing abort 合同已于 2026-11-28 完成验收，随本次提交保存）。
 范围：单源初始化与 moving-tag 业务语义、极简 `config` 与端点解析、共享双工传输核、`internal/transport/ipc`、独立公开包 `ethadapter` 与默认订阅策略。
 
@@ -382,3 +382,12 @@ Windows job `140922906956` 的 build、vet 及 `go test -race ./internal/transpo
 CodeQL 的 Go／Actions 分析任务执行成功，但汇总检查因三条 `go/allocation-size-overflow` 告警失败：两条指向 `rpcwire.EncodeRequest` 拼接 header、params 前缀与 params 的容量加法，一条指向 IPC `WriteMessage` 的 `len(payload)+1`。修复在每次加法前按 `math.MaxInt` 减法检查剩余空间，越界返回本地错误；不使用入站消息上限代替出站容量证明，不改变编码次序、消息字节、取消／deadline 与写进度合同。
 
 补丁只改这两个生产文件并增加两个纯整数边界测试文件。rpcwire、IPC、streamrpc、HTTP 与 WSS 整包普通／race、相关 lint／vet 及架构依赖门通过。主控以临时 Go overlay 恢复原未检查算式，在 386 实际运行下确定性复现六个边界失败；恢复修复后两组边界测试通过，全程未构造巨型 slice。此记录属于本地修复验收；用户已授权将容量保护、Windows 审计测试修正及验收记录随本次提交保存，未推送，也未获得 GitHub CodeQL 重跑或 Windows adapter 修复后的运行结果。
+
+
+### PR #13 复验通过与合入 master（2026-11-28）
+
+修复提交 `3fdb6b70e65ba15e036e26d32acad68864f1262b` 的 CI run `46129611512` 已完成：全仓测试、Verification race 两次乱序、构建、架构隔离、格式／tidy／vet、lint、govulncheck 与 release 配置门均通过；CodeQL 汇总检查 `140931785303` 成功，三条容量告警已关闭。scheduled fuzz／deadcode 按触发条件跳过，CodeRabbit 的文件数限制仍不计为代码审查证据。
+
+Windows job `140931942348` 的 build、vet、streamrpc／IPC race、adapter race 及独立 `go test -race ./internal/transport/ipc -run '^TestWindowsNamedPipe' -count=1 -v` 步骤全部成功。此次为真实 Windows runner 运行证据，关闭此前平台门禁；不扩展为所有 execution 客户端的 IPC 互操作保证。
+
+用户于 2026-11-28 合并 PR #13，master 合并提交为 `7fdda4b1a956dc2b370eb56a8a0917fcb941886c`，文件树与已验收的 `3fdb6b7` 相同，保留阶段历史。根目录中英文 README 随 beta.4 准备更新公开入口、示例和保证边界。beta.4 tag 尚未创建；最终文档需推送并完成该 master 提交的 CI，再按发布合同手动启动 `release`，固定最终 SHA 并审批候选产物。本记录不把 PR CI 当作发布工作流已经通过。

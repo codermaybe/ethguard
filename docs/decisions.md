@@ -3263,7 +3263,7 @@ dialing, new reconnect/replay behavior or additional real-provider evidence.
 
 ## 0079. Bounded local IPC framing on the shared duplex owner
 
-Status: Implemented; Unix local acceptance passed, Windows runtime gate pending (2026-11-28).
+Status: Implemented; Unix local acceptance and Windows named pipe CI passed (2026-11-28).
 
 IPC adds only platform dialing, bounded lexical JSON object boundaries and a
 physical MessageConn. Calls and subscriptions reuse streamrpc state and its
@@ -3280,9 +3280,10 @@ payload before adding a newline and abort on physical errors or short writes.
 
 Real Unix socket and mixed WSS/IPC facade checks passed, including race tests,
 frozen source bases, single-source references and construction-time path
-freezing. Windows test compilation and vet passed; real named pipe tests are
-configured in Windows CI but have not run in this environment. No broader
-execution-client interoperability claim follows from these local fixtures.
+freezing. Windows job 140931942348 on commit 3fdb6b7 passed build/vet,
+streamrpc/IPC race, adapter race and the explicit real named pipe tests.
+The runtime platform gate is closed. No broader execution-client
+interoperability claim follows from these fixtures.
 
 
 ## 0080. Peripheral geth business adapter on the native execution owner
@@ -3315,7 +3316,7 @@ to S6 and are covered by ADR 0081.
 
 ## 0081. Bounded geth subscriptions with native ownership and shared close barriers
 
-Status: Implemented and accepted locally (2026-11-28); real Windows named pipe execution remains pending CI.
+Status: Implemented and accepted locally (2026-11-28); Windows adapter race and real named pipe CI also passed on 3fdb6b7 (job 140931942348).
 
 The adapter's three subscriptions use the locked geth signatures and fixed
 native defaults. No reorg mode, buffer option or second typed stream API is
