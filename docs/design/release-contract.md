@@ -7,7 +7,7 @@
 关联：`decisions.md` 0057（外部消费者前提）、[验证与证据合同](method-verification-pipeline.md#8-工具所有权与材料保留)（工具层所有权）、
 [live-canary-contract.md](live-canary-contract.md)（canary 证据分层）、
 `.github/workflows/{ci,release,live-canary}.yml`、`.goreleaser.yaml`、
-`scripts/{lint,release_check,release_api_diff,release_build,govulncheck}.sh`。
+`scripts/{lint,release_candidate,release_check,release_api_diff,release_build,govulncheck}.sh`。
 
 ---
 
@@ -21,7 +21,12 @@
 - **保护**：仓库必须先配置 `release` Environment，至少一个 required reviewer，
   禁止发起人自审，并只允许 `master` 部署。准备阶段检查这些条件，未配置即失败；
   不能依赖 GitHub 自动创建的空 Environment 充当保护。
-- **权限**：准备阶段只有 `contents: read`；唯一 `contents: write` job 位于受保护
+- **首次配置**：在仓库 Settings → Environments 新建名为 `release` 的环境，设置
+  required reviewers 并启用 Prevent self-review；Deployment branches and tags 选择
+  Selected branches and tags，仅添加类型为 Branch、名称为 `master` 的规则。
+  审批者须能由本次 workflow 发起人之外的人担任；仅创建同名空环境不满足合同。
+- **权限**：准备阶段只有 `contents: read` 和 `actions: read`，后者用于读取环境及其
+  部署分支规则；唯一 `contents: write` job 位于受保护
   Environment 之后。审批前只生成 Actions artifact，不创建 tag、draft 或公开 Release。
 - **顺序**：固定 SHA → 质量门禁、API 报告、fuzz、构建与 smoke → 不可变候选 artifact
   → 人工审批 → 下载并复验相同产物 → 创建 tag 和 draft → 上传与远端校验 → 公开 Release。
@@ -31,6 +36,7 @@
 
 | 入口 | 作用 | 输出与限制 |
 | --- | --- | --- |
+| `bash scripts/release_candidate.sh` | 固定 SHA、清洁 checkout、版本与远端 tag / Release 不存在、环境审批及分支保护检查 | 仅执行远端读取；全部通过才写候选证据与 Actions 输出；API 失败标明资源及配置排查方向 |
 | `bash scripts/release_check.sh` | 格式、tidy、公开生成类型新鲜度、vet、固定版本默认/anvil lint、anvil纯编译、build、全仓 race、可达漏洞扫描 | 不是离线流程；需要 `vuln.go.dev`；不代表完整发布验证 |
 | `bash scripts/lint.sh` | 固定golangci-lint 2.15.0，默认与anvil全仓扫描 | 生产、测试、cmd/testkit、生成器与生成代码全部纳入；没有本地链或provider请求 |
 | `bash scripts/release_api_diff.sh PREVIOUS_TAG` | 上一已发布版本与当前整模块公共 API 对比，包含删除的包 | `release-evidence/`；API 变化仅报告，工具、下载与导出错误失败 |
@@ -44,6 +50,12 @@
 Go 和 jq。工作流使用 Ubuntu runner，另使用预装的 gh、jq 和 tar。
 本地脚本验证当前工作树，不声称绑定提交；发布工作流另行检查 SHA 与 checkout 清洁性。
 `release_check.sh` 与 CI 的独立矩阵允许重复，但门禁语义必须同步。
+
+候选校验的回归测试执行实际 `release_candidate.sh`，以隔离的只读 `git` / `gh`
+响应覆盖缺失环境、权限错误、保护不足、重复版本和成功输出。这些测试随 Go 测试运行，
+需要 Bash 与 jq；它们不替代目标仓库的真实 Environment 配置或远端发布验收。
+checkout 状态检查同时要求 `git status` 成功和输出为空，不能把命令失败的空输出
+解释为干净工作区。
 
 Go 1.26 的 duration fuzz 存在到期误报竞态（[golang/go#75804](https://github.com/golang/go/issues/75804)，
 [backport / 计数预算说明](https://github.com/golang/go/issues/82363)）；不忽略或重试该错误，
@@ -146,6 +158,7 @@ Environment 审批、远端资产上传或 CDN 行为。远端发布成功必须
 | beta.2，`b6e7829` | release `41829485059`、canary `41829485063` 成功，16资产；相对 beta.1 仅 workflow／文档变化，模块 API 相同 | beta.1 保留 tag-only，不删除或补发；这些历史状态不改写 |
 | 2026-11-09 GoReleaser 接入 | 本地15项构建／checksum、5入口 smoke、候选打包解包／只读复验、正式 API 差异与质量脚本曾通过 | 没有执行远端 Environment 审批／上传或真实 RPC canary，不宣称 EthClient complete |
 | 同批 fuzz 诊断 | duration 到期错误未生成反例；8-worker 最小化 EOF 根因未定，改为第2节计数预算、2-worker串行 | 不忽略引擎错误、不减少目标执行次数；参数与当前入口以第2节为准 |
+| 2026-11-28 beta.4，`cdb8f2b` | release run `46136001861` 在候选与审批保护校验返回 `gh: Not Found (HTTP 404)`；查询仓库环境列表仅有 `copilot`，`release` 环境查询返回 404。补充环境配置说明、明确只读权限及候选校验错误上下文 | GoReleaser 仅安装成功，质量、fuzz、构建与发布步骤未运行；未创建 beta.4 tag / Release。本地回归不能代替配置环境后重新 dispatch 的远端证据 |
 
 beta.3 的脚本执行位失败见下一节。失败 tag 的不可变性与 SHA／产物绑定，是保留这些历史摘要的原因；阶段完成清单、逐条本地命令输出不再复制成当前规范。
 
