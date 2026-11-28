@@ -105,31 +105,22 @@ func TestComposedReferenceServicePresetTags(t *testing.T) {
 	}
 }
 
-// Safe uses the same strict algorithm in both presets, so its observable
-// evidence distinguishes the client's Forwarded rule from the finalized
-// preset's fixed majority floor. Neither may claim a corroborated anchor.
+// A standalone anchor retains its corroboration guarantee on a singleton.
 func TestComposedReferenceServiceSingleSourceRule(t *testing.T) {
-	for _, tc := range []struct {
-		name      string
-		finalized bool
-		status    rpc.Status
-		required  int
-		reason    rpc.DecisionReason
-		err       error
-	}{
-		{name: "strict", status: rpc.Forwarded, required: 1, reason: rpc.ReasonGuaranteeNotMet, err: rpc.ErrGuaranteeNotMet},
-		{name: "finalized", finalized: true, status: rpc.Unknown, required: 2, reason: rpc.ReasonInsufficientSupport, err: rpc.ErrInsufficientSupport},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			nodes := equivFleet(t, nil)
-			service := composedReferenceService(t, nodes, tc.finalized)
-			ref, err := service.ReferenceForTag(context.Background(), "safe")
-			if !errors.Is(err, tc.err) || ref.Status != tc.status || ref.Adjudication.Required != tc.required || ref.Adjudication.Reason != tc.reason {
-				t.Fatalf("reference = %+v, error = %v; want status %s, required %d, reason %v, error %v", ref, err, tc.status, tc.required, tc.reason, tc.err)
-			}
-			if ref.Hash != "" || ref.Height != 0 || ref.Tag != "safe" || ref.Origin != "tagged-head" || ref.ObservedAt.IsZero() || ref.Adjudication.Basis != 1 || len(ref.Support) != 1 || len(ref.Reject) != 0 || len(ref.Faults) != 0 {
-				t.Fatalf("single-source failure evidence = %+v", ref)
-			}
-		})
+	nodes := equivFleet(t, nil)
+	service := composedReferenceService(t, nodes, false)
+	ref, err := service.ReferenceForTag(context.Background(), "safe")
+	if !errors.Is(err, rpc.ErrGuaranteeNotMet) || ref.Status != rpc.Forwarded || ref.Adjudication.Required != 1 || ref.Adjudication.Reason != rpc.ReasonGuaranteeNotMet {
+		t.Fatalf("single-source reference = %+v, error = %v", ref, err)
+	}
+	if ref.Hash != "" || ref.Height != 0 || ref.Tag != "safe" || ref.Origin != "tagged-head" || ref.ObservedAt.IsZero() || ref.Adjudication.Basis != 1 || len(ref.Support) != 1 || len(ref.Reject) != 0 || len(ref.Faults) != 0 {
+		t.Fatalf("single-source failure evidence = %+v", ref)
+	}
+	_, err = Compose(Composition{
+		Upstreams: []config.Upstream{{ID: "node", Endpoint: nodes[0].URL()}},
+		Anchoring: &AnchoringStrategy{Finalized: true, MaxLag: DefaultMaxFinalizedLag},
+	})
+	if !errors.Is(err, rpc.ErrInvalidRequest) {
+		t.Fatalf("single-source finalized must fail construction, got %v", err)
 	}
 }

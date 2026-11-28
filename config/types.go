@@ -42,15 +42,17 @@ type Transport string
 const (
 	TransportNativeHTTP Transport = "native-http"
 	TransportWSS        Transport = "wss"
+	TransportIPC        Transport = "ipc"
 )
 
 // Upstream describes a single RPC provider.
 type Upstream struct {
-	// ID is a stable, human-readable identifier for diagnostics and metrics.
+	// ID is a human-readable identifier for diagnostics and metrics. Empty
+	// programmatic values and omitted YAML values receive an unused rpc-N name.
 	ID string `yaml:"id" json:"id"`
-	// Endpoint is the RPC dial target (http(s) or ws(s)).
+	// Endpoint is a network URL or an explicit local IPC path. Configuration
+	// loading freezes relative paths to an absolute target against process cwd.
 	Endpoint string `yaml:"endpoint" json:"endpoint"`
-	// Transport is explicit per source. Empty selects native HTTP;
-	// WebSocket endpoints require TransportWSS.
+	// Transport is inferred when empty. An explicit selection must match Endpoint.
 	Transport Transport `yaml:"transport,omitempty" json:"transport,omitempty"`
 }

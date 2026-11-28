@@ -1,7 +1,7 @@
 // Package transport is the Port-only physical home of the connection seam:
 // the Transport and Dialer interfaces pool consumes, and the neutral
 // sentinels core packages classify on. It owns no adapter implementation —
-// native adapters live in internal/transport/http and internal/transport/wss.
+// native adapters live in internal/transport/{http,wss,ipc}.
 package transport
 
 import (
@@ -27,6 +27,14 @@ type Transport interface {
 // Dialer creates one long-lived Transport for an endpoint.
 type Dialer interface {
 	DialContext(context.Context, string) (Transport, error)
+}
+
+// BoundedSubscriberDialer declares subscription capability without opening a
+// connection. Pool snapshots this property at construction, then checks the
+// actual Transport's BoundedSubscriber capability when establishing a stream.
+type BoundedSubscriberDialer interface {
+	Dialer
+	SupportsBoundedSubscriptions() bool
 }
 
 // Notification is one decoded JSON-RPC subscription notification. It is an

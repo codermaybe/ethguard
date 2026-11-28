@@ -16,9 +16,10 @@
 | 实际装配的只读投影 | [生成方法索引](method-rules.md)，禁止手改 |
 | 公开类型与业务兼容目标 | [兼容政策](go-ethereum-compatibility-policy.md) |
 | 已有入口与逐方法／传输证据缺口 | [覆盖清单](method-transport-coverage.md) |
+| 统一接入平面、极简配置、IPC 与 `ethadapter` 设计及验收 | [接入平面、IPC 与适配器合同](access-plane-ipc-adapter.md)（S0–S6 已实施并通过本地验收；S4 Windows 真实运行待 CI） |
 | HTTP协议与adapter生命周期 | [Transport合同](transport-contract.md) |
 | raw WSS握手／帧／通知与连接 | [WSS wire合同](wss-wire-contract.md) |
-| NewHead连续路径；Logs完整批次、证明与资源合同；receipts及S1待办 | [订阅合同](subscription-contract.md) |
+| NewHead／Logs／Receipts连续路径、证明与资源合同；默认策略、终态和桥接所有权 | [订阅合同](subscription-contract.md) |
 | 方法验证、场景、capture／golden、Anvil、工具与材料保留 | [验证与证据合同](method-verification-pipeline.md) |
 | 固定canary plan、manifest/report/recheck及观察状态 | [Live canary合同](live-canary-contract.md) |
 | 正式发布门禁、固定工具、产物与失败处置 | [发布合同](release-contract.md) |

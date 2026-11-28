@@ -81,7 +81,7 @@ func prepareSliceRequest(t *testing.T, tc slicePlan, params []any, hash string) 
 		}
 	}
 	ref, ok := sliceReference(t, tc.plan, req, hash)
-	return tc.plan.PrepareWithReference(req, ref, ok)
+	return tc.plan.PrepareWithReference(req, ref, ok, planTestBasis())
 }
 
 // TestEIP1898BlockRefSlice covers the T02 first vertical slice: moving tags,
@@ -114,7 +114,7 @@ func TestEIP1898BlockRefSlice(t *testing.T) {
 			// The safe read is served the latest establishment: the evidence
 			// carries the wrong level, so the rewrite refuses it.
 			wrong := rpc.ReferenceEvidence{Hash: testHashSafe, Height: 16, Status: rpc.Corroborated, Tag: "latest"}
-			if _, _, err := tc.plan.PrepareWithReference(req, wrong, true); !errors.Is(err, rpc.ErrReferenceRequired) {
+			if _, _, err := tc.plan.PrepareWithReference(req, wrong, true, planTestBasis()); !errors.Is(err, rpc.ErrReferenceRequired) {
 				t.Fatalf("%s: safe read accepted latest evidence: %v", tc.name, err)
 			}
 		}
@@ -238,7 +238,7 @@ func TestEIP1898BlockRefSlice(t *testing.T) {
 				// refOK=false: the read declared a moving tag but no
 				// established reference exists.
 				req := rpc.Request{Method: tc.name, Params: withRef([]any{"0xabc"}, tc.pos, ref)}
-				if _, _, err := tc.plan.PrepareWithReference(req, rpc.ReferenceEvidence{}, false); err == nil || !strings.Contains(err.Error(), "anchor") {
+				if _, _, err := tc.plan.PrepareWithReference(req, rpc.ReferenceEvidence{}, false, planTestBasis()); err == nil || !strings.Contains(err.Error(), "anchor") {
 					t.Fatalf("%s %v: got %v, want an anchor failure", tc.name, ref, err)
 				}
 			}

@@ -86,7 +86,7 @@ func TestSimulateV1ReferenceForms(t *testing.T) {
 	}
 	req := rpc.Request{Method: MethodSimulateV1, Params: []any{payload}}
 	ref := rpc.ReferenceEvidence{Hash: hash, Height: 16, Status: rpc.Corroborated}
-	prepared, pin, err := plan.PrepareWithReference(req, ref, true)
+	prepared, pin, err := plan.PrepareWithReference(req, ref, true, planTestBasis())
 	if err != nil || pin != hash || !reflect.DeepEqual(prepared.Params, []any{payload, hash}) {
 		t.Fatalf("prepared = %#v, pin %q, err %v", prepared, pin, err)
 	}

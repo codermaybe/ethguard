@@ -39,9 +39,9 @@ func TestBuildAssemblesRegisteredRuntime(t *testing.T) {
 }
 
 // TestComposeRejectsCollapsedBasis exercises the composition backstop
-// directly: Compose receives Inputs without config.Validate, so a caller that
-// bypasses the configuration layer must still fail construction when pool
-// folds spelling variants of one endpoint into fewer members than declared.
+// directly: Compose normalizes its own inputs, so a caller that
+// bypasses the public configuration entry points must still fail construction
+// when spelling variants would collapse the declared membership denominator.
 func TestComposeRejectsCollapsedBasis(t *testing.T) {
 	input := Composition{
 		Upstreams: []config.Upstream{
@@ -59,8 +59,8 @@ func TestComposeRejectsCollapsedBasis(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected Compose to reject the collapsed basis")
 		}
-		if !strings.Contains(err.Error(), "collapsed to 1 pool members") || !strings.Contains(err.Error(), "2 configured upstreams") {
-			t.Fatalf("backstop must name the fold, got %v", err)
+		if !strings.Contains(err.Error(), "upstreams[1]") || !strings.Contains(err.Error(), "same member as upstreams[0]") {
+			t.Fatalf("normalization must name the duplicate, got %v", err)
 		}
 	}
 	deadline := time.Now().Add(5 * time.Second)

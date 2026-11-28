@@ -3181,3 +3181,204 @@ transitional default is removed.
 The current contracts are design/transport-contract.md and
 design/codebase-topology.md. These deletions add no new transport, caching or
 provider compatibility guarantee.
+
+
+## 0076. Unified source-count construction and honest business references
+
+Status: Accepted and implemented (2026-11-28). Continues decisions 0030,
+0065 and 0074. Historical records remain unchanged.
+
+Dial, DialContext, Open, OpenContext, New and LoadFile share one rule: reject
+zero sources, select Forwarded with floor zero for one source, and Majority
+with floor two for two or more distinct sources. Duplicate canonical endpoints
+are errors, never an implicit collapse into Forwarded. Mode and membership
+stay fixed after construction. Open accepts the existing Go options; context
+constructors check cancellation at entry and do no network I/O. The pre-v1
+DialUncorroborated entry is removed without a compatibility alias.
+
+Moving-tag business reads use the existing reference stage in both modes.
+One rpcengine eligibility rule binds Forwarded evidence to the frozen singleton
+basis, source identity, successful adjudication, requested level and full hash.
+The business request is pinned to that reference; no direct latest passthrough
+is introduced. Independent Anchor queries retain their Corroborated guarantee.
+Single-source finalized anchoring is rejected after configuration and option
+merge, before allocating a pool; ordinary finalized-tag reads remain available.
+Failures retain formed evidence and do not change voting thresholds.
+
+The current contracts are design/reference-freshness-policy.md and
+design/access-plane-ipc-adapter.md. HTTP/WSS public regressions and focused
+core race acceptance passed; IPC, the shared duplex transport and ethadapter
+remain subsequent slices with their own acceptance gates.
+
+
+## 0077. Shared endpoint identity and immutable subscription capability
+
+Status: Accepted and implemented (2026-11-28).
+
+The standard-library-only internal/endpoint package owns endpoint syntax,
+transport inference, frozen dial targets and canonical identity. Configuration
+normalization is shared by validation and construction. Omitted ids are assigned
+rpc-N names after reserving all explicit ids; explicit transport must agree
+with the endpoint. Duplicate identities are errors. Relative local paths are
+frozen against construction-time cwd without resolving symlinks. Unix identity
+is an escaped URI while dialing preserves the literal absolute filename.
+
+Pool membership captures bounded subscription support from the chosen dialer
+at construction without network I/O. Subscription selection consumes this
+immutable capability instead of guessing from a URL scheme; runtime stream
+creation still checks the concrete bounded subscriber port. Health changes
+and reconnections cannot change the subscription voting basis.
+
+HTTP/WSS configuration and capability acceptance passed, including independent
+race checks. IPC syntax is recognized but runtime IPC dialing remains a later
+slice. The current contracts are design/transport-contract.md and
+design/access-plane-ipc-adapter.md.
+
+
+## 0078. Shared duplex RPC ownership and explicit physical write progress
+
+Status: Accepted and implemented (2026-11-28).
+
+internal/transport/streamrpc owns request association, notification leases and
+bounds, pre-bind state, subscription setup cleanup, graceful drain and abort.
+WSS owns its handshake, frame codec and physical connection, with a thin RPC
+binding. The shared owner cannot depend on WSS, IPC or execution modules.
+
+MessageConn transfers independent message buffers and reports whether any
+bytes were physically written. Only confirmed pre-write cancellation leaves
+the connection reusable. Partial writes, physical errors and invalid write
+results terminate it. Short writes become errors; cancellation without a
+deadline interrupts physical I/O, and its deadline callback must settle before
+the one physical write lock is released. Control frames use the same lock.
+
+Physical Close unblocks I/O immediately. RPC Close rejects new work and drains
+existing unary calls; real faults still abort during graceful closing. The
+first terminating transition owns failure delivery. Existing notification
+FIFO, setup cleanup and exactly-once lease ownership remain unchanged.
+
+Focused ordinary/race acceptance, independent MessageConn tests, Gorilla
+interop and two 100000-case WSS fuzz targets passed. This does not claim IPC
+dialing, new reconnect/replay behavior or additional real-provider evidence.
+
+
+## 0079. Bounded local IPC framing on the shared duplex owner
+
+Status: Implemented; Unix local acceptance passed, Windows runtime gate pending (2026-11-28).
+
+IPC adds only platform dialing, bounded lexical JSON object boundaries and a
+physical MessageConn. Calls and subscriptions reuse streamrpc state and its
+write-progress, cancellation, notification and close contracts. Unix uses the
+standard library; Windows alone imports go-winio, promoted to a direct pinned
+dependency without widening the WSS dependency gate.
+
+The scanner preserves adjacent and fragmented objects, strings and multiline
+JSON while rejecting batch, invalid boundaries, excessive nesting, truncation
+and oversized messages. Its fixed read buffer and bounded per-message growth
+are separate from subscription budgets. Small messages start with a small
+allocation so pre-bind accounting reflects retained capacity. Writes copy the
+payload before adding a newline and abort on physical errors or short writes.
+
+Real Unix socket and mixed WSS/IPC facade checks passed, including race tests,
+frozen source bases, single-source references and construction-time path
+freezing. Windows test compilation and vet passed; real named pipe tests are
+configured in Windows CI but have not run in this environment. No broader
+execution-client interoperability claim follows from these local fixtures.
+
+
+## 0080. Peripheral geth business adapter on the native execution owner
+
+Status: S5 non-subscription implementation accepted locally (2026-11-28); subsequent S6 acceptance is recorded in ADR 0081.
+
+The public ethadapter consumes only root, ethapi and rpc contracts. Its 44
+non-subscription methods match the locked geth signatures while all execution,
+source membership and capture remain owned by the shared core. Native packages
+cannot import the adapter or link ethclient/bind. Algorithm and signature-type
+dependencies are explicitly allowlisted only at the peripheral boundary.
+
+Conversions reject malformed or unrepresentable values and failed signed
+payload/header/body commitments. Complete blocks reconstruct and revalidate
+uncle evidence carried by the same call's public Provenance. Arbitrary-precision
+amounts remain arbitrary precision; historical signature values are not
+silently restricted by an unavailable chain configuration. Structural omissions
+are reported through pure conversion results or the optional observer, with no
+new policy switches. Native capture and adapter conversion errors remain
+separate, and observer panics cannot turn successful broadcasts into retries.
+
+Independent HTTP, signature, official simulation vector and bind deployment
+consumer tests passed alongside focused ordinary/race, lint and architecture
+gates. These tests exposed and corrected the shared typed FeeHistory quantity
+encoding and negative-tag mapping. Raw Call's prior input domain is unchanged.
+Windows test cross-compilation is not Windows runtime acceptance. Channel
+subscriptions, measured defaults and the shared close barrier were assigned
+to S6 and are covered by ADR 0081.
+
+
+## 0081. Bounded geth subscriptions with native ownership and shared close barriers
+
+Status: Implemented and accepted locally (2026-11-28); real Windows named pipe execution remains pending CI.
+
+The adapter's three subscriptions use the locked geth signatures and fixed
+native defaults. No reorg mode, buffer option or second typed stream API is
+introduced. Any native Retracted path, including a zero-match Logs block,
+establishes ErrReorgDetected before conversion allocation or observer calls.
+The first established terminal cause wins. A send already competing with
+cancellation may finish; no send occurs after Err closure or a completed
+Unsubscribe/client Close barrier. Applications still own rollback and rescan.
+
+internal/subscription owns default policy values. Root exposes transparent
+Default*SubscriptionPolicy constructors; explicitly zero policies still fail.
+Head admission is 32 MiB; Logs and Receipts content admission is 1 GiB and
+2 GiB respectively, with 1 MiB responses and two concurrent content requests.
+These are logical ownership budgets, not preallocated memory or RSS bounds.
+Existing decoding and winner-reservation multipliers remain unchanged.
+The defaults passed continuous 240-transaction/720-log blocks, an atomic
+20-block reorg and actual concurrent content calls, with zero ledgers after
+Close. Measurements and workload limits belong to the subscription contract.
+
+NextWithBudget reserves destination ownership before releasing source leases.
+Rejected transfer preserves retryable payload ownership, and a receiver lease
+can outlive native Close. Terminated/TerminalError publishes a stable producer
+cause independently of FIFO drain and network cleanup; it is not EventQueue.Done.
+The adapter separately bounds native events, conversion workspace and outgoing
+objects with two queued batches and a 256 MiB ledger. Budget or queue exhaustion
+terminates explicitly, and an independent terminal observer can stop an unread
+caller channel. Caller channels are never closed by the library.
+
+Root AttachSubscription accepts only Stop/Done lifecycle capabilities. The
+adapter registers before native setup; registration and Client.Close seal under
+one lock. Stop, pool closure and Done waits occur outside that lock. Done covers
+native Close, delivery workers and Err closure; early detach cannot evade the
+barrier. Direct native streams retain their own Close completion contract.
+The root never imports the adapter or becomes a general task manager.
+
+Subscription audit carries setup/event/terminal, fixed Basis and native events,
+including empty blocks and proofs. It does not fabricate unary CallResult.
+WithAudit takes precedence over WithLogger; absent observers add no audit event
+or timing construction. Callbacks must return promptly and cannot reenter Close;
+retained callback data becomes caller ownership. Panic isolation and mutation
+tests preserve already established conversion and reorg conclusions.
+
+Independent contracts, full signatures, required ecosystem interfaces and
+bind/v2 watch consumption passed. Acceptance found and fixed streamrpc's typed
+nil setup result, intentional Head close publishing queue failure before its
+stable nil cause, and an overextended reader lock causing concurrent Close to
+hang. Final frozen ordinary and race runs each passed 59 test packages and
+10,433 test/subtest events, with no failures or skipped tests. Static, generation,
+workflow and cross-compilation gates also passed. Real Windows execution,
+additional provider observations, live Anvil and release approval are separate.
+
+Current contracts: [subscriptions](design/subscription-contract.md),
+[geth compatibility](design/go-ethereum-compatibility-policy.md) and
+[access-plane acceptance](design/access-plane-ipc-adapter.md).
+
+Same-day independent review identified two adapter boundary omissions:
+EarliestBlockNumber (-5) was missing from the adapter's reference conversion,
+and event/terminal audit callbacks retained setup cancellation and deadlines.
+The minimal correction maps earliest to genesis (0x0) and derives one
+observer-only WithoutCancel context, preserving values and the original setup
+callback context. Deterministic ordering checks confirmed the existing native
+terminal/adapter-stop priority; Err ownership ends at buffered publication,
+without an application receive acknowledgement. The post-fix adapter race run
+passed 208 test/subtest events, with lint/vet clean. The earlier 10,433-event
+whole-tree runs remain evidence for the pre-fix baseline; they were not repeated
+for these two adapter-only changes.

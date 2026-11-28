@@ -198,7 +198,7 @@ func TestCreateAccessListObjectForms(t *testing.T) {
 		if needed {
 			t.Fatal("pending declared a reference need")
 		}
-		prepared, _, err := plan.PrepareWithReference(req, evidence, false)
+		prepared, _, err := plan.PrepareWithReference(req, evidence, false, planTestBasis())
 		if err != nil {
 			t.Fatal(err)
 		}

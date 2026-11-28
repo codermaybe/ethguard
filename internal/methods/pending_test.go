@@ -225,7 +225,7 @@ func TestPendingLocalExtendedMethods(t *testing.T) {
 			if needed {
 				t.Fatalf("%s pending declared a reference need", tc.name)
 			}
-			prepared, _, err := tc.plan.PrepareWithReference(req, evidence, false)
+			prepared, _, err := tc.plan.PrepareWithReference(req, evidence, false, planTestBasis())
 			if err != nil {
 				t.Fatal(err)
 			}

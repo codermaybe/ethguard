@@ -46,7 +46,7 @@ func TestReferenceDefaultPositionalBehavior(t *testing.T) {
 			if !ok || need.Kind != rpc.ReferenceLatest {
 				t.Fatalf("requirement = %#v, %v; want latest", need, ok)
 			}
-			prepared, pin, err := plan.PrepareWithReference(req, planEvidence("latest"), true)
+			prepared, pin, err := plan.PrepareWithReference(req, planEvidence("latest"), true, planTestBasis())
 			want := "0xabc"
 			if shape == ReferenceShapeHeightAt {
 				want = "0x10"

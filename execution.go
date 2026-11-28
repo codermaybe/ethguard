@@ -3,7 +3,6 @@ package ethguard
 import (
 	"context"
 	"errors"
-	"fmt"
 
 	"github.com/codermaybe/ethguard/internal/pool"
 	"github.com/codermaybe/ethguard/internal/uncertain"
@@ -196,15 +195,17 @@ func writeOperation(c *Client, ctx context.Context, view bool, body func(opCtx c
 
 // establishAnchor is the shared private anchor execution: it establishes the
 // reference for tag through the client's service and delivers the evidence
-// explicitly to the caller. Internal sub-operations (moving-tag reads,
-// pending pinning) call this directly with their own context — never a
-// public anchor facade — so no nested capture binding and no early
+// explicitly to the caller. It does not reenter a public operation, so no
+// nested capture binding and no early
 // completion can happen. An empty tag means the default reference. Each call
 // establishes afresh and keeps any partial evidence beside the error.
 func (c *Client) establishAnchor(ctx context.Context, tag string) (rpc.ReferenceEvidence, error) {
-	ref, err := c.reference.ReferenceForTag(ctx, tag)
-	if err == nil && ref.Status != rpc.Corroborated {
-		err = fmt.Errorf("uncorroborated reference: %w", rpc.ErrGuaranteeNotMet)
-	}
-	return ref, err
+	return c.reference.ReferenceForTag(ctx, tag)
+}
+
+// establishBusinessReference obtains a moving-tag pin through the same stage
+// as standalone anchors, with the business admissibility contract. It never
+// binds or completes the enclosing operation's capture.
+func (c *Client) establishBusinessReference(ctx context.Context, tag string) (rpc.ReferenceEvidence, error) {
+	return c.reference.BusinessReferenceForTag(ctx, tag)
 }

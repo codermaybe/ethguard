@@ -22,7 +22,7 @@ func TestBlockByNumberPendingTagIsNotRewrittenToAnchor(t *testing.T) {
 	if needed {
 		t.Fatal("pending tag established a reference")
 	}
-	prepared, pin, err := plan.PrepareWithReference(original, evidence, false)
+	prepared, pin, err := plan.PrepareWithReference(original, evidence, false, planTestBasis())
 	if err != nil {
 		t.Fatalf("pending tag rejected by plan: %v", err)
 	}

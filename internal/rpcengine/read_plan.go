@@ -270,7 +270,8 @@ func (p ReadPlan) fieldsRequirement(req rpc.Request) (rpc.ReferenceRequest, bool
 
 // PrepareWithReference rewrites one request for fan-out. The established
 // reference evidence arrives as a value — the plan never establishes, reads
-// no context, and holds no network callback — and refOK is false when the
+// no context, and holds no network callback. Basis carries the invocation's
+// frozen members and corroboration rule; refOK is false when the
 // read declared no moving tag. The returned pin is the block reference the
 // rewrite introduced (empty for reads that rewrote nothing, including
 // pending shapes), so projection records the security-relevant pin.
@@ -279,7 +280,7 @@ func (p ReadPlan) fieldsRequirement(req rpc.Request) (rpc.ReferenceRequest, bool
 // considered, invalid objects fail locally with ErrInvalidRequest before any
 // upstream contact, and established evidence that does not serve the
 // request's tag fails the read the way a missing reference would.
-func (p ReadPlan) PrepareWithReference(req rpc.Request, ref rpc.ReferenceEvidence, refOK bool) (rpc.Request, string, error) {
+func (p ReadPlan) PrepareWithReference(req rpc.Request, ref rpc.ReferenceEvidence, refOK bool, basis Basis) (rpc.Request, string, error) {
 	req = p.ApplyReferenceDefault(req)
 	// The copy preserves the parameter list's shape in both directions: nil
 	// stays nil (no params member on the wire), and an empty list stays
@@ -299,7 +300,7 @@ func (p ReadPlan) PrepareWithReference(req rpc.Request, ref rpc.ReferenceEvidenc
 		pos := p.Reference.Positions[0]
 		if pos >= 0 && pos < len(params) {
 			if obj, ok := params[pos].(map[string]any); ok {
-				return p.prepareEIP1898Object(req.Method, params, pos, obj, ref, refOK)
+				return p.prepareEIP1898Object(req.Method, params, pos, obj, ref, refOK, basis)
 			}
 			// Strings and anything else belong to the anchored layer below.
 		}
@@ -308,9 +309,9 @@ func (p ReadPlan) PrepareWithReference(req rpc.Request, ref rpc.ReferenceEvidenc
 	}
 	switch p.Reference.Kind {
 	case ReferenceShapeHashAt, ReferenceShapeHeightAt:
-		return p.prepareStringPositions(req, params, ref, refOK)
+		return p.prepareStringPositions(req, params, ref, refOK, basis)
 	case ReferenceShapeHeightFieldsAt:
-		return p.prepareHeightFields(req, params, ref, refOK)
+		return p.prepareHeightFields(req, params, ref, refOK, basis)
 	}
 	return rpc.Request{Method: req.Method, Params: params}, "", nil
 }
@@ -319,7 +320,7 @@ func (p ReadPlan) PrepareWithReference(req rpc.Request, ref rpc.ReferenceEvidenc
 // when it carries a moving blockNumber. An explicit pin, pending, earliest,
 // and a quantity pass through untouched; contradictory or malformed objects
 // fail locally before any upstream contact.
-func (p ReadPlan) prepareEIP1898Object(method string, params []any, pos int, obj map[string]any, ref rpc.ReferenceEvidence, refOK bool) (rpc.Request, string, error) {
+func (p ReadPlan) prepareEIP1898Object(method string, params []any, pos int, obj map[string]any, ref rpc.ReferenceEvidence, refOK bool, basis Basis) (rpc.Request, string, error) {
 	pinned, needAnchor, tag, err := rpc.ValidateEIP1898Object(method, obj)
 	if err != nil {
 		return rpc.Request{}, "", err
@@ -328,7 +329,7 @@ func (p ReadPlan) prepareEIP1898Object(method string, params []any, pos int, obj
 		// Explicit or pending pin: complete, untouched.
 		return rpc.Request{Method: method, Params: params}, "", nil
 	}
-	hash, err := servingReferenceHash(ref, refOK, tag)
+	hash, err := servingReferenceHash(ref, refOK, tag, basis)
 	if err != nil {
 		return rpc.Request{}, "", err
 	}
@@ -340,7 +341,7 @@ func (p ReadPlan) prepareEIP1898Object(method string, params []any, pos int, obj
 // positions: hash methods rewrite to the anchor hash, height methods to the
 // anchor height spelled as a hex quantity. Explicit numbers, hashes, and
 // pending pass through untouched; mixed moving tags fail locally.
-func (p ReadPlan) prepareStringPositions(req rpc.Request, params []any, ref rpc.ReferenceEvidence, refOK bool) (rpc.Request, string, error) {
+func (p ReadPlan) prepareStringPositions(req rpc.Request, params []any, ref rpc.ReferenceEvidence, refOK bool, basis Basis) (rpc.Request, string, error) {
 	if !anyMovingTagAt(params, p.Reference.Positions) {
 		return rpc.Request{Method: req.Method, Params: params}, "", nil
 	}
@@ -348,7 +349,7 @@ func (p ReadPlan) prepareStringPositions(req rpc.Request, params []any, ref rpc.
 	if err != nil {
 		return rpc.Request{}, "", err
 	}
-	spell, err := servingReferenceSpelling(p.Reference.Kind, ref, refOK, anchorTag)
+	spell, err := servingReferenceSpelling(p.Reference.Kind, ref, refOK, anchorTag, basis)
 	if err != nil {
 		return rpc.Request{}, "", err
 	}
@@ -369,7 +370,7 @@ func (p ReadPlan) prepareStringPositions(req rpc.Request, params []any, ref rpc.
 // blockHash pin excludes the range fields: coexisting bounds are
 // contradictory input and fail locally; a pin without range fields is
 // complete and passes untouched.
-func (p ReadPlan) prepareHeightFields(req rpc.Request, params []any, ref rpc.ReferenceEvidence, refOK bool) (rpc.Request, string, error) {
+func (p ReadPlan) prepareHeightFields(req rpc.Request, params []any, ref rpc.ReferenceEvidence, refOK bool, basis Basis) (rpc.Request, string, error) {
 	pos := p.Reference.ParamPos
 	if pos < 0 || pos >= len(params) {
 		return rpc.Request{Method: req.Method, Params: params}, "", nil
@@ -407,7 +408,7 @@ func (p ReadPlan) prepareHeightFields(req rpc.Request, params []any, ref rpc.Ref
 	if !rewrite {
 		return rpc.Request{Method: req.Method, Params: params}, "", nil
 	}
-	spell, err := servingReferenceSpelling(p.Reference.Kind, ref, refOK, anchorTag)
+	spell, err := servingReferenceSpelling(p.Reference.Kind, ref, refOK, anchorTag, basis)
 	if err != nil {
 		return rpc.Request{}, "", err
 	}
@@ -430,12 +431,12 @@ func (p ReadPlan) prepareHeightFields(req rpc.Request, params []any, ref rpc.Ref
 }
 
 // servingReferenceHash is the hash spelling of the establishment contract:
-// the established evidence must serve the request's tag and be corroborated.
-func servingReferenceHash(ref rpc.ReferenceEvidence, refOK bool, tag string) (string, error) {
+// the established evidence must serve the tag on the frozen invocation basis.
+func servingReferenceHash(ref rpc.ReferenceEvidence, refOK bool, tag string, basis Basis) (string, error) {
 	if !refOK {
 		return "", fmt.Errorf("anchor: missing anchor function")
 	}
-	if err := servingReferenceError(ref, tag); err != nil {
+	if err := ValidateReferenceEvidence(ReferencePurposeBusiness, basis, tag, ref); err != nil {
 		return "", err
 	}
 	return ref.Hash, nil
@@ -444,31 +445,17 @@ func servingReferenceHash(ref rpc.ReferenceEvidence, refOK bool, tag string) (st
 // servingReferenceSpelling is the same contract in the shape the declared
 // reference kind rewrites with: hash kinds take the hash, height kinds take
 // the height spelled as a hex quantity.
-func servingReferenceSpelling(kind ReferenceShape, ref rpc.ReferenceEvidence, refOK bool, tag string) (string, error) {
+func servingReferenceSpelling(kind ReferenceShape, ref rpc.ReferenceEvidence, refOK bool, tag string, basis Basis) (string, error) {
 	if !refOK {
 		return "", fmt.Errorf("anchor: missing anchor function")
 	}
-	if err := servingReferenceError(ref, tag); err != nil {
+	if err := ValidateReferenceEvidence(ReferencePurposeBusiness, basis, tag, ref); err != nil {
 		return "", err
 	}
 	if kind == ReferenceShapeHeightAt || kind == ReferenceShapeHeightFieldsAt {
 		return "0x" + strconv.FormatUint(ref.Height, 16), nil
 	}
 	return ref.Hash, nil
-}
-
-// servingReferenceError fails a rewrite whose established evidence does not
-// serve the request's moving tag, with the same errors the anchor readers
-// report: a mismatched level is a missing reference, and uncorroborated
-// evidence never rewrites a request.
-func servingReferenceError(ref rpc.ReferenceEvidence, tag string) error {
-	if !EvidenceServesTag(ref, tag) {
-		return fmt.Errorf("anchor: %w", rpc.ErrReferenceRequired)
-	}
-	if ref.Status != rpc.Corroborated {
-		return fmt.Errorf("anchor: uncorroborated reference: %w", rpc.ErrGuaranteeNotMet)
-	}
-	return nil
 }
 
 // EvidenceServesTag reports whether established reference evidence serves a

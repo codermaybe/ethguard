@@ -2,6 +2,16 @@
 
 本文可直接用于重启对话：说明当前架构、验收状态和独立未决事项，不依赖旧聊天、`docs/tmp/`或`/tmp`材料。具体业务合同由末尾链接的正式文档维护。
 
+**接入平面验收（2026-11-28）：S0–S6 已实施并通过本地主控验收；S4 的 Windows 真实 pipe 运行门禁仍待 CI。** [统一接入、IPC 与 ethadapter 合同](access-plane-ipc-adapter.md)已完成统一单／多源构造、单源 moving-tag Reference、端点及配置推导、不可变订阅能力、共享 WSS／IPC 双工核、47 项精确 geth 签名、严格转换与审计、默认订阅策略及三类 channel 桥。固定成员不降级、Forwarded 诚实状态、原生撤回终止和共享 Close 完成屏障均有独立反例。两个执行者已交付并冻结代码，主控已将长期合同回写模块文档；本轮代码、回归与正式文档随本次提交在本地保存，未推送。
+
+最终冻结的 841 个 Go／模块／CI 与 lint 输入无漂移。全仓普通／race 各 59 个测试包、10,433 个测试及子测试通过事件，另 8 包无测试，零失败、零跳过测试；Verification race 两次乱序复验通过。原生及 Windows build／vet、Windows 测试交叉编译、Plan 9 fallback 构建、默认／anvil lint、anvil 编译、tidy、生成 Go／audit 一致、actionlint及格式／diff门禁通过；govulncheck 为零可达漏洞。具体复现命令及范围见[最终验收记录](access-plane-ipc-adapter.md#8-最终本地验收与剩余平台门禁2026-11-28)。
+
+默认预算通过每块 240 笔交易／720 条日志、20 块原子重组和实际双请求并发，关闭后 Head／内容账本归零；测量是合成负载下的抽样保留额度，不是 RSS 或真实主网保证。验收期间发现并修复共享 typed FeeHistory 编码、streamrpc typed nil 清理、Head 主动关闭终态顺序及 Close 读锁范围回归；旧 fixture 随已冻结合同迁移。Windows 四项真实 pipe 测试和 race CI 已配置但尚未实际运行；本轮没有新增 provider 采集、真实 Anvil 执行或正式发布。默认策略与桥接证据见[订阅合同](subscription-contract.md)，设计决定见 ADR 0076–0081。下文保留前序架构阶段记录，其“本轮”范围不替代本次验收。
+
+**Git 保存与 CI：** 用户已授权本地提交，本轮实现和追加边界修复一并保存，未推送。当前工作流 push 仅监听 master，pull_request 也会触发；当前功能分支需创建／更新 PR 才能运行 Windows 实机门禁，单独 push 不足以触发。
+
+**同日独立终审追加修复：** 已用公开入口反例复现并修复 adapter 的 earliest `-5` 漏映射及 event／terminal 审计继承 setup 取消期限；预算首因三种确定性交错符合既有合同，Err 租约仅澄清缓冲发布移交点。仅两个 adapter 生产文件改变，补丁后主控 adapter 整包 race 208 个通过事件、零失败／跳过，lint／vet通过；独立回归先红后绿。上段全仓 10,433 事件属于补丁前完整基线，不冒充再次全仓执行；追加证据见[接入设计](access-plane-ipc-adapter.md#独立终审后的边界修复2026-11-28)。
+
 **当前状态（2026-11-28）：ethapi 标准管线已完成实施、本地主控验收及 Gemini 外部终审，结论 PASS、零阻塞缺陷。** 唯一构建 Manifest、规则型 Overlay、双向 specdiff、离线 specsync 和运行时严格根消费已落地；长期合同见 [标准生成与升级合同](wire-codegen.md)，包用户入口见 [ethapi README](../../ethapi/README.md)。完整 release_check（含 55 个测试包的 race）、18 个发布二进制构建及发布版 specsync 完整离线演练均通过。原有公开声明无删除或改签名；`net_version` 负非零值和 FeeHistory 部分非法数组输入的接受域收紧、Block 最小身份分支的保证范围均已显式记录。该结论不包含新一轮性能优化、真实 provider replay 或正式发布；当前按阶段保存为本地提交，未推送。
 
 **性能优化（2026-11-28）：Wave 0 → 1A → 1B → 2A → 2B → 3 已完成本地主控终审，尚待 Gemini 独立外审。** 性能代码相对 `0550b7a` 保存为五个本地提交，最后为 `e40851d`，未推送。严格标量与 JSON 快路径、Receipt 同一字节复用、AccessList 唯一方法根值验证试点、Block／Transaction 局部复用、投影单次分段和请求拼装已落地。终审拦下投影首版 CPU 回退，修正后重新通过全仓普通／race 各 55 测试包及静态检查。最初基线到终态的同样本测量显示典型 Quantity 编码约快 83%、AccessList64 约快 56%、Log64 约快 46%，三源 HTTP 不主张普遍稳定提速。Block／Logs 的 Canonical 路线扩围、Transaction wiremask 改造及异构 field aggregation 经审计后保留当前实现，边界和理由已记录。可直接转交 [性能终审交接](performance-final-review.md)；完整阶段数据、已知成本与复现口径见 [性能分阶段验证](performance-verification.md)。
@@ -39,8 +49,8 @@
 - 对象行为集中到 `internal/ethobject` 单树，block owner 同时服务方法准入、订阅内容证明与 direct raw 解码；生成、通用 codec、对象规则和 typed 交付各有明确职责。
 - `rpc` 保留公开请求、响应、裁定及证据数据；执行机制进入 `internal/rpcengine`，装配由 `internal/runtime` 拥有。Canonical 处理合同与 raw resolver 互斥，独立 `Normalize` 服务诊断与 typed 比较键；生产调用按固定成员 Basis 消费构造时的规则。
 - 独立 reference 查询归单个 `runtime.ReferenceService`，root 直接消费证据并交付 hash／height 与 CallResult。默认与 finalized preset 仍保留各自构造规则，stage 继续拥有 tag 路由、候选／确认与失败的部分证据；服务收敛不统一这些业务规则。
-- Head／Logs／Receipts 执行统一属于 `internal/subscription`，根门面只保留稳定 alias 与入口适配。根读取按账户状态、block/header、transaction/receipt/log、contract execution 和 simulate 业务归组；诊断工具与 fixture 集中到 `internal/diag`，核心不能反向导入诊断。
-- SDK 直接收口旧执行接口，不保留旧路径 alias 或转发入口。外部诊断通过 `Client.Sources()` 值快照与 `Client.Sample()` 原始采样，取代 `Client.Pool()`；`Sample` 保留真实 `rpc.Response`，不运行 reference、admission 或裁定。`HTTPAdapter`／`WithHTTPAdapter`／`DialerOption` 和已退休的 `AnchorCacheTTL` 配置已删除，transport 按来源配置使用原生 HTTP 或 WSS。
+- Head／Logs／Receipts 执行统一属于 `internal/subscription`，根门面保留稳定 alias、默认策略构造、入口适配及外围订阅交付关闭登记。根读取按账户状态、block/header、transaction/receipt/log、contract execution 和 simulate 业务归组；诊断工具与 fixture 集中到 `internal/diag`，核心不能反向导入诊断。
+- SDK 直接收口旧执行接口，不保留旧路径 alias 或转发入口。外部诊断通过 `Client.Sources()` 值快照与 `Client.Sample()` 原始采样，取代 `Client.Pool()`；`Sample` 保留真实 `rpc.Response`，不运行 reference、admission 或裁定。`HTTPAdapter`／`WithHTTPAdapter`／`DialerOption` 和已退休的 `AnchorCacheTTL` 配置已删除，transport 由端点推导为原生 HTTP、WSS 或 IPC。
 
 以上是明确的公开 API 变化，不能用前序性能轮“公开签名不变”概括。当前细节以 [代码库拓扑](codebase-topology.md)、[Transport 合同](transport-contract.md)、[返回值合同](return-value-design.md) 与各方法／订阅合同为准。
 
@@ -48,7 +58,7 @@
 
 前轮 Linux build／vet、Windows amd64（CGO=0）交叉 build／vet、anvil 编译、默认／anvil 两路 lint 与 staticcheck 均通过；deadcode 仅报告原有 4 个测试接口 stub，无生产死码。此前 tidy 结果及独立 wiregen Go／audit 产物在该提交再次比对一致，全 Go 格式与 diff 检查通过。workflow 当时通过 actionlint／ShellCheck；本次 workflow 修改另行检查。anvil 当时仅编译，未执行本地链；本轮未新增真实 provider 观察。
 
-IPC、geth 类型适配、完整 Simulate 语义、F1、共享 Hub／持久化、真实 provider／Anvil 执行及正式发布仍是独立议题，本轮结构收敛不自动完成这些工作。Head RequestTimeout 是否覆盖解码及等锁后的接纳仍属未决合同，未认定为生产缺陷，也未在本轮修改其行为。
+IPC 与 geth 类型适配在后续接入平面专题已按页首范围完成本地验收，Windows 运行门禁保持开放。完整 Simulate 语义、F1、共享 Hub／持久化、真实 provider／Anvil 执行及正式发布仍是独立议题。Head RequestTimeout 是否覆盖解码及等锁后的接纳仍属未决合同，未认定为生产缺陷，也未在本轮修改其行为。
 
 组合验收中已修复 Head 既有的 recovery exhausted 故障（`b7e0150`）：没有 Q target 时恢复双方祖先，不以旧 committed tip 截断搜索，ledger 不回退。组合普通验收还暴露了旧 WSS 绑定前预算失败的清理窗口：失败的建立尝试尚未退出时，后续未知通知可重新建立缓存。该行为在旧基线也能复现；`f251f67` 按仍活跃的建立尝试判断缓存归属，保留失败标记及其他活跃尝试的通知，并在最后一个活跃尝试结束后清理。独立回归控制 pump 退出先后，不把 `Err` 接收改成完成屏障；实际合同归 [WSS wire](wss-wire-contract.md)。
 

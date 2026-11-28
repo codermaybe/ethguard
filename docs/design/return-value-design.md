@@ -68,6 +68,13 @@ receipt 已采用官方形态与保护闭环：`from`／`effectiveGasPrice` 必�
 
 Provenance 的准入证据、withheld 字节和代表源必须同源；不得从簇内其他成员补材料。Provenance 不保存代表源 Raw，也没有为 Raw 设定的字节上限。原始证据的保留预算属于 `CallResult.Uncertain`／source-evidence 通道，不能与此混为一谈。域外字段只有达到动态门槛的单一值才能进入 Extensions，其余为 Diagnostics；它们不成为受保护 Core。
 
+完整 `eth_getBlockByHash`／`eth_getBlockByNumber(..., true)` 的非空 `Provenance` 是按 `Value.uncles` 顺序排列、经过同源准入的叔块响应 JSON 数组，元素可包含 block 形态额外字段；没有叔块时可以没有该载体。`ethadapter` 重建完整块时必须重新核验各 uncle header hash、对应 hash 与 aggregate uncle root，并复核交易／withdrawals 内容承诺。该默认载体与可选原始来源材料预算无关，不能跨方法把 opaque Provenance 当作免检对象。
+
+`ethadapter` 的纯转换直接返回 `ConversionReport`；Client 调用通过可选审计交付省略与错误，不改变此处的核心结果语义。它不在 context 上重套 `WithResult`。核心调用成功后若 geth 转换失败，外层 capture 仍保留核心成功，适配器方法返回独立转换错误；`AuditEvent` 分别携带核心结果、`CoreErr` 与 `AdapterErr`。详见[兼容政策](go-ethereum-compatibility-policy.md)。
+
+订阅审计使用独立的 `AuditEvent.Subscription`：setup／event／terminal 阶段携带固定 Basis 和对应原生 Head／Logs／Receipts 事件，包含空匹配块、撤回与证明；不伪造 unary `CallResult` 或 `Decision`。其保留、终态及关闭边界归[订阅合同](subscription-contract.md)。
+
+
 ### 数据交付与责任范围
 
 项目不以一个万能 struct 兼容所有 provider 响应。官方定义是受保护结果的语义基准，前置兼容只积累经审核的生态规则；责任边界见 [方法契约](method-contracts.md#前置生态兼容与官方语义检查)。字段未被官方类型或公开 Go 类型表达，不等于它没有交付价值，但也不能因此把它并入受保护 Value。

@@ -19,9 +19,10 @@ import (
 	"github.com/codermaybe/ethguard/rpc"
 )
 
-// Client is EthGuard's only client: corroborated typed reads with
-// ethclient-shaped signatures, the generic Call decision entry, and the
-// write broadcast. Multiple goroutines may use one Client concurrently;
+// Client is EthGuard's only client: typed reads with ethclient-shaped
+// signatures, the generic Call decision entry, and the write broadcast.
+// Single-source reads are Forwarded; multi-source reads follow each method's
+// corroboration contract. Multiple goroutines may use one Client concurrently;
 // connections are owned and reused by the internal RPC management pool.
 type Client struct {
 	pool       *pool.Pool
@@ -47,11 +48,12 @@ type Client struct {
 	cancelLife context.CancelCauseFunc
 	// closeOnce makes the close sequence — the closed mark, the lifecycle
 	// cancellation, and the shared pool close — a single atomic step;
-	// concurrent and repeated calls all wait on the pool's one completion
-	// signal.
+	// concurrent and repeated calls share the same complete close barrier.
 	closeOnce sync.Once
 	// closed is the closed mark new operations gate on.
-	closed atomic.Bool
+	closed         atomic.Bool
+	subscriptionMu sync.Mutex
+	subscriptions  map[*attachedSubscription]struct{}
 }
 
 // Option tunes a Client at construction time.
@@ -104,7 +106,7 @@ func WithCollectTimeout(timeout time.Duration) Option {
 // reference is pinned at the lowest finalized height that is still fresh
 // across sources (the runtime's finalized head resolver), so divergent latest
 // tips no longer fail anchored reads. Options tune the freshness bound and
-// similar knobs.
+// similar knobs. Construction rejects this preset with fewer than two sources.
 func WithFinalizedAnchoring(opts ...FinalizedAnchorOption) Option {
 	return func(o *clientOptions) {
 		o.useFinalizedAnchoring = true
@@ -117,7 +119,8 @@ func WithFinalizedAnchoring(opts ...FinalizedAnchorOption) Option {
 // more than maxBehind blocks are skipped by fan-outs until they catch up or
 // their sample recovers (pool.WithTipTracking). Zero values select the
 // documented defaults (10s sampling, 32-block bound), applied by pool from
-// config's single source of defaults (decision 0004).
+// config's single source of defaults (decision 0004). A single-source client
+// retains periodic health and RTT sampling but has no peer freshness evidence.
 func WithTipTracking(every time.Duration, maxBehind uint64) Option {
 	return func(o *clientOptions) {
 		o.tipEnabled = true
@@ -136,15 +139,21 @@ func WithChainID(chainID uint64) Option {
 }
 
 // New builds a Client from an already-loaded configuration.
-// Upstreams are registered into the RPC pool with endpoint deduplication.
-// Dialing each source is deferred until its first call.
+// Empty or duplicate upstreams are rejected. One upstream selects Forwarded
+// mode; two or more select Majority mode. Dialing each source is deferred until
+// its first call. The finalized anchoring preset requires multiple upstreams.
 //
 // Precedence between the two construction paths: an explicit Go option
 // always wins over a value derived from the configuration, and a zero
 // option value falls through to the documented default. Duration strings
-// in the configuration were validated by cfg.Validate; the parses below
-// cannot fail for a Config that passed validation.
+// in the configuration are validated by config.Normalize before options are
+// applied, so the parses below cannot fail.
 func New(cfg config.Config, opts ...Option) (*Client, error) {
+	normalized, err := config.Normalize(cfg)
+	if err != nil {
+		return nil, err
+	}
+	cfg = normalized
 	co := clientOptions{}
 	for _, opt := range opts {
 		opt(&co)
@@ -180,9 +189,6 @@ func New(cfg config.Config, opts ...Option) (*Client, error) {
 	}
 	if co.chainID != nil {
 		cfg.ChainID = *co.chainID
-	}
-	if err := cfg.Validate(); err != nil {
-		return nil, err
 	}
 	rec := co.recorder
 	if rec == nil && co.logger != nil {
@@ -248,15 +254,27 @@ func (c *Client) Normalize(method string, raw json.RawMessage) (string, error) {
 //
 // It is safe to call from any number of goroutines: the mark and the
 // cancellation happen exactly once, and every caller — first or concurrent —
-// waits on the pool's single completion signal, so Close returns only when
-// the pool's background commitments (the tip sampler) have ended. It does
-// not wait for callers to finish processing their received results.
+// waits for the pool and every attached subscription delivery worker. It
+// does not wait for callers to finish processing already received results.
 func (c *Client) Close() {
 	c.closeOnce.Do(func() {
+		c.subscriptionMu.Lock()
 		c.closed.Store(true)
+		attached := make([]*attachedSubscription, 0, len(c.subscriptions))
+		for entry := range c.subscriptions {
+			attached = append(attached, entry)
+		}
+		c.subscriptions = nil
+		c.subscriptionMu.Unlock()
 		c.cancelLife(pool.ErrClosed)
+		for _, entry := range attached {
+			entry.life.Stop()
+		}
+		c.pool.Close()
+		for _, entry := range attached {
+			<-entry.done
+		}
 	})
-	c.pool.Close()
 }
 
 // isClosed reports the closed mark new operations gate on.

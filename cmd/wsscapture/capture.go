@@ -265,7 +265,7 @@ func probeScenario(ctx context.Context, rawURL, label, endpoint string, sc scena
 	defer conn.Close() //nolint:errcheck // The recorded exchange owns probe errors; closing the raw socket only releases resources.
 
 	writeCtx, cancelWrite := context.WithTimeout(ctx, cfg.Timeout)
-	if err := conn.WriteMessage(writeCtx, request); err != nil {
+	if _, err := conn.WriteMessage(writeCtx, request); err != nil {
 		cancelWrite()
 		record.DataState = "write-error"
 		record.ReadError = redact.text(err.Error())
@@ -297,7 +297,7 @@ func probeFollowUp(ctx context.Context, conn *wss.Conn, cfg captureConfig, redac
 	result := &followUp{Method: "eth_chainId"}
 	writeCtx, cancelWrite := context.WithTimeout(ctx, cfg.Timeout)
 	defer cancelWrite()
-	if err := conn.WriteMessage(writeCtx, request); err != nil {
+	if _, err := conn.WriteMessage(writeCtx, request); err != nil {
 		result.Error = redact.text(err.Error())
 		result.CloseCode, result.CloseText = closeInfo(err)
 		return result

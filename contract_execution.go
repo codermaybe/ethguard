@@ -277,11 +277,11 @@ func (c *Client) FeeHistory(ctx context.Context, blockCount uint64, lastBlock *b
 }
 
 func (c *Client) feeHistoryExec(ctx context.Context, blockCount uint64, lastBlock *big.Int, rewardPercentiles []float64) (*ethapi.FeeHistoryResult, CallResult, error) {
-	lastRef := "latest"
-	if lastBlock != nil {
-		lastRef = hexutil.EncodeBig(lastBlock)
+	lastRef, err := checkedBlockNumArg(lastBlock)
+	if err != nil {
+		return nil, CallResult{}, err
 	}
-	decision, err := c.callTyped(ctx, methods.MethodFeeHistory, blockCount, lastRef, rewardPercentiles)
+	decision, err := c.callTyped(ctx, methods.MethodFeeHistory, hexutil.EncodeUint64(blockCount), lastRef, rewardPercentiles)
 	if err != nil {
 		decision.Value = nil
 		return nil, CallResult{Decision: decisionOf(decision)}, err

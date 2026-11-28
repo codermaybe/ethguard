@@ -584,8 +584,7 @@ func TestTypedFeeHistoryTransportFixture(t *testing.T) {
 		if len(req.Params) != 3 || wireString(t, req.Params[1]) != "0x10" {
 			t.Fatalf("transport %d params = %s, want [count, 0x10, percentiles]", i, req.Params)
 		}
-		var count uint64
-		if err := json.Unmarshal(req.Params[0], &count); err != nil || count != 2 {
+		if wireString(t, req.Params[0]) != "0x2" {
 			t.Fatalf("transport %d block count = %s", i, req.Params[0])
 		}
 		var percentiles []float64

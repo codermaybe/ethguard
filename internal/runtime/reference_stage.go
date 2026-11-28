@@ -76,6 +76,10 @@ func (s *ReferenceStage) memberRefs() []rpc.SourceRef {
 // succeeded: the caller attaches success evidence to the invocation, and a
 // failed round's evidence stays visible to the decision.
 func (s *ReferenceStage) Establish(ctx context.Context, invocation rpcengine.Invocation, request rpc.ReferenceRequest) (*rpc.ReferenceEvidence, error) {
+	return s.establish(ctx, invocation, request, rpcengine.ReferencePurposeBusiness)
+}
+
+func (s *ReferenceStage) establish(ctx context.Context, invocation rpcengine.Invocation, request rpc.ReferenceRequest, purpose rpcengine.ReferencePurpose) (*rpc.ReferenceEvidence, error) {
 	if !request.IsValid() {
 		return nil, fmt.Errorf("reference: unknown reference kind %q: %w", request.Kind, rpc.ErrInvalidRequest)
 	}
@@ -107,7 +111,7 @@ func (s *ReferenceStage) Establish(ctx context.Context, invocation rpcengine.Inv
 		// members, same snapshot, same assembly as the facade's resolver
 		// service.
 		snapshot := invocation.Basis().Corroboration
-		round, roundErr := s.strict.establish(ctx, members, snapshot, string(request.Kind))
+		round, roundErr := s.strict.establish(ctx, members, snapshot, string(request.Kind), purpose)
 		ref, emissions, err = round.reference, round.emissions, roundErr
 		collectErr = round.collectErr
 	default:
@@ -121,6 +125,9 @@ func (s *ReferenceStage) Establish(ctx context.Context, invocation rpcengine.Inv
 	// The evidence records the requested tag: latest rides as the default
 	// reference with no tag, every other level names itself.
 	ref.Tag = taggedOriginTag(string(request.Kind))
+	if err == nil {
+		err = rpcengine.ValidateReferenceEvidence(purpose, invocation.Basis(), string(request.Kind), ref)
+	}
 	if err != nil {
 		// A failed establishment hands back the evidence it formed: the
 		// caller keeps it visible to the decision and never starts the

@@ -83,6 +83,8 @@ type HeadSubscription struct {
 	life            context.Context
 	cancel          context.CancelFunc
 	done            chan struct{}
+	terminated      chan struct{}
+	terminalCause   error
 	watcherDone     chan struct{}
 	queue           *EventQueue
 	budget          *AtomicMemoryBudget
@@ -114,32 +116,86 @@ func (s *HeadSubscription) Basis() EvidenceBasis {
 }
 
 func (s *HeadSubscription) Next(ctx context.Context) (HeadEvent, error) {
-	e, err := s.queue.Next(ctx)
+	event, _, err := s.nextTyped(ctx, nil)
+	return event, err
+}
+
+// NextWithBudget transfers a complete event or terminal to destination before
+// releasing source accounting. The reservation includes the typed delivery
+// projection. Retain release until the event/error is discarded or externally
+// delivered. Reserve must be nonblocking and must not synchronously call Close.
+// A failed transfer returns only audit under its source reservation, owned by
+// release; the unread payload remains in the native queue.
+func (s *HeadSubscription) NextWithBudget(ctx context.Context, destination MemoryBudget) (HeadEvent, func(), error) {
+	if destination == nil {
+		return HeadEvent{}, nil, fmt.Errorf("subscription: missing destination budget")
+	}
+	return s.nextTyped(ctx, headTransferBudget{destination})
+}
+
+type headTransferBudget struct{ MemoryBudget }
+
+func (b headTransferBudget) Reserve(n uint64) (func(), error) {
+	if n > (^uint64(0)-4096)/2 {
+		return nil, ErrMemoryBudget
+	}
+	return b.MemoryBudget.Reserve(2*n + 4096)
+}
+func (s *HeadSubscription) nextTyped(ctx context.Context, destination MemoryBudget) (HeadEvent, func(), error) {
+	e, release, err := s.queue.next(ctx, destination)
 	if err != nil {
 		if ctx.Err() != nil {
 			_ = s.Close()
 		}
-		return HeadEvent{}, err
+		return HeadEvent{}, release, err
 	}
 	if e.Delta == nil {
-		return HeadEvent{}, fmt.Errorf("ethguard: missing head path delta")
+		if release != nil {
+			release()
+		}
+		return HeadEvent{}, nil, fmt.Errorf("ethguard: missing head path delta")
 	}
 	d := e.Delta
-	out := HeadEvent{Path: HeadPathDelta{BaseVersion: d.BaseVersion, NewVersion: d.NewVersion, CommonAncestor: d.CommonAncestor, Retracted: d.Retracted, PreBirthProof: d.PreBirthProof, Reason: d.Reason}, Evaluation: e.Evaluation, Audit: e.Audit}
-	for _, a := range d.Appended {
+	out := HeadEvent{Path: HeadPathDelta{BaseVersion: d.BaseVersion, NewVersion: d.NewVersion, CommonAncestor: d.CommonAncestor, Retracted: d.Retracted, PreBirthProof: d.PreBirthProof, Reason: d.Reason, Appended: make([]HeadDelivery, len(d.Appended))}, Evaluation: e.Evaluation, Audit: e.Audit}
+	for i, a := range d.Appended {
 		h, ok := a.HeaderValue.(*ethapi.Header)
 		if !ok {
-			return HeadEvent{}, fmt.Errorf("ethguard: missing admitted header")
+			if release != nil {
+				release()
+			}
+			return HeadEvent{}, nil, fmt.Errorf("ethguard: missing admitted header")
 		}
-		out.Path.Appended = append(out.Path.Appended, HeadDelivery{Node: a.Node, Header: h, ObjectSupplier: a.ObjectSupplier, Tier: e.EvidenceTier})
+		out.Path.Appended[i] = HeadDelivery{Node: a.Node, Header: h, ObjectSupplier: a.ObjectSupplier, Tier: e.EvidenceTier}
 	}
-	return out, nil
+	return out, release, nil
+}
+
+// Terminated closes at the producer terminal cut, independently of queued
+// delivery and cleanup. Next retains its FIFO drain and full audit contract.
+func (s *HeadSubscription) Terminated() <-chan struct{} { return s.terminated }
+
+// TerminalError reports the stable producer cause after Terminated closes.
+// Explicit cancellation has no failure cause. Complete audit is available via Next.
+func (s *HeadSubscription) TerminalError() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.terminalCause
+}
+func (s *HeadSubscription) abort() {
+	s.mu.Lock()
+	// Publish intentional termination before waking queue consumers. A bridge
+	// must never observe ErrClosed while the stable terminal cause is undecided.
+	s.finishLocked(nil)
+	// An already failed producer still needs its unread FIFO discarded.
+	s.queue.Abort()
+	s.mu.Unlock()
 }
 func (s *HeadSubscription) Close() error {
-	s.queue.Abort()
-	s.mu.Lock()
-	s.finishLocked(nil)
-	s.mu.Unlock()
+	s.abort()
+	// Join only the in-flight ownership transfer. Cleanup waits below must
+	// remain outside this mutex so concurrent Close callers can join together.
+	s.queue.nextMu.Lock()
+	s.queue.nextMu.Unlock() //nolint:staticcheck // Intentional empty critical section: join the current Next transfer.
 	<-s.done
 	<-s.watcherDone
 	return nil
@@ -159,6 +215,8 @@ func (s *HeadSubscription) finishLocked(err error) {
 		err = nil
 	}
 	s.stopping = true
+	s.terminalCause = stableTerminalCause(err)
+	close(s.terminated)
 	s.cancel()
 	for _, f := range s.fetches {
 		f.cancel()
@@ -248,7 +306,7 @@ func startNewHeadSubscription(ownerCtx, setupCtx context.Context, sources []Sour
 		return nil, err
 	}
 	life, cancel := context.WithCancel(ownerCtx)
-	s := &HeadSubscription{life: life, cancel: cancel, done: make(chan struct{}), watcherDone: make(chan struct{}), queue: NewEventQueue(budget), budget: budget, arena: NewPayloadArena(budget), tracker: tracker, sessions: sessions, sources: append([]Source(nil), sources...), policy: policy, wake: make(chan struct{}, 1), gateDuration: policy.Gate.Initial, sourceProducers: len(sources), sampleWake: make(chan struct{}, 1), fixedRelease: fixedRelease}
+	s := &HeadSubscription{life: life, cancel: cancel, done: make(chan struct{}), terminated: make(chan struct{}), watcherDone: make(chan struct{}), queue: NewEventQueue(budget), budget: budget, arena: NewPayloadArena(budget), tracker: tracker, sessions: sessions, sources: append([]Source(nil), sources...), policy: policy, wake: make(chan struct{}, 1), gateDuration: policy.Gate.Initial, sourceProducers: len(sources), sampleWake: make(chan struct{}, 1), fixedRelease: fixedRelease}
 	s.mu.Lock()
 	for _, source := range sources {
 		s.launchLocked(func() { s.runSource(source) })
@@ -262,10 +320,7 @@ func startNewHeadSubscription(ownerCtx, setupCtx context.Context, sources []Sour
 		defer close(s.watcherDone)
 		select {
 		case <-ownerCtx.Done():
-			s.queue.Abort()
-			s.mu.Lock()
-			s.finishLocked(nil)
-			s.mu.Unlock()
+			s.abort()
 		case <-s.queue.Done():
 		}
 	}()

@@ -389,7 +389,7 @@ func TestSimulateV1PendingAndForwardedModesDoNotClaimCorroboration(t *testing.T)
 		}
 	}
 
-	single, err := ethguard.DialUncorroborated(peers[0].peer.endpoint)
+	single, err := ethguard.Dial(peers[0].peer.endpoint)
 	if err != nil {
 		t.Fatal(err)
 	}

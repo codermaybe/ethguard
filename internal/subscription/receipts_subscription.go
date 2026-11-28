@@ -140,16 +140,31 @@ func NewReceipts(owner, setup context.Context, load func() ([]Source, error), q 
 }
 
 func (s *ReceiptsSubscription) Next(ctx context.Context) (ReceiptsEvent, error) {
-	event, audit, err := s.next(ctx)
+	event, _, err := s.nextTyped(ctx, nil)
+	return event, err
+}
+
+// NextWithBudget reserves the receiving owner's complete event before source
+// accounting is released. Keep release until discarding or externally delivering
+// the event/error. Reserve must not block or synchronously call Close. A reserve
+// failure leaves the content event and its audit in the native FIFO for retry.
+func (s *ReceiptsSubscription) NextWithBudget(ctx context.Context, destination MemoryBudget) (ReceiptsEvent, func(), error) {
+	if destination == nil {
+		return ReceiptsEvent{}, nil, fmt.Errorf("subscription: missing destination budget")
+	}
+	return s.nextTyped(ctx, destination)
+}
+func (s *ReceiptsSubscription) nextTyped(ctx context.Context, destination MemoryBudget) (ReceiptsEvent, func(), error) {
+	event, audit, release, err := s.nextWithBudget(ctx, destination)
 	if err != nil {
 		var terminal *contentTerminalError
 		if errors.As(err, &terminal) {
-			return ReceiptsEvent{}, &ReceiptsTerminalError{Cause: terminal.Cause, CommittedTip: terminal.CommittedTip, PathVersion: terminal.PathVersion, Audit: terminal.Audit, ContentAudit: terminal.ContentAudit}
+			return ReceiptsEvent{}, release, &ReceiptsTerminalError{Cause: terminal.Cause, CommittedTip: terminal.CommittedTip, PathVersion: terminal.PathVersion, Audit: terminal.Audit, ContentAudit: terminal.ContentAudit}
 		}
-		return ReceiptsEvent{}, err
+		return ReceiptsEvent{}, release, err
 	}
 	event.ContentAudit = audit
-	return event, nil
+	return event, release, nil
 }
 
 func (s *ReceiptsSubscription) run() {

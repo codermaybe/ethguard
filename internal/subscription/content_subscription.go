@@ -3,6 +3,7 @@ package subscription
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -74,6 +75,9 @@ type contentSubscription[E any] struct {
 	life                              context.Context
 	cancel                            context.CancelFunc
 	done                              chan struct{}
+	terminated                        chan struct{}
+	terminalOnce                      sync.Once
+	terminalCause                     error
 	drained                           chan struct{}
 	drainedOnce                       sync.Once
 	head                              *HeadSubscription
@@ -150,7 +154,7 @@ func newContentSubscription[E any](owner, setup context.Context, sources []Sourc
 		terminalReserve()
 		return nil, err
 	}
-	s := &contentSubscription[E]{life: life, cancel: cancel, done: make(chan struct{}), drained: make(chan struct{}), watcherDone: make(chan struct{}), head: head, budget: budget, sources: append([]Source(nil), sources...), slots: make(chan struct{}, concurrency), notify: make(chan struct{}, 1), terminalReserve: terminalReserve, fixedRelease: fixed}
+	s := &contentSubscription[E]{life: life, cancel: cancel, done: make(chan struct{}), terminated: make(chan struct{}), drained: make(chan struct{}), watcherDone: make(chan struct{}), head: head, budget: budget, sources: append([]Source(nil), sources...), slots: make(chan struct{}, concurrency), notify: make(chan struct{}, 1), terminalReserve: terminalReserve, fixedRelease: fixed}
 	go func() {
 		defer close(s.watcherDone)
 		select {
@@ -194,9 +198,10 @@ func (s *contentSubscription[E]) signal() {
 }
 
 func (s *contentSubscription[E]) abort() {
-	s.cancel()
 	s.mu.Lock()
+	s.markTerminatedLocked(nil)
 	s.aborted, s.closed = true, true
+	s.cancel()
 	for s.first != nil {
 		item := s.first
 		s.first = item.next
@@ -216,21 +221,49 @@ func (s *contentSubscription[E]) abort() {
 	s.mu.Unlock()
 	s.signal()
 }
+
+// Terminated closes at the producer terminal cut without waiting for FIFO
+// consumption or slow canceled workers. It does not replace Close's join.
+func (s *contentSubscription[E]) Terminated() <-chan struct{} { return s.terminated }
+
+// TerminalError is the stable cause after Terminated closes; nil denotes
+// intentional cancellation. Next continues to own the full terminal audit.
+func (s *contentSubscription[E]) TerminalError() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.terminalCause
+}
+func (s *contentSubscription[E]) markTerminatedLocked(err error) {
+	s.terminalOnce.Do(func() { s.terminalCause = stableTerminalCause(err); close(s.terminated) })
+}
 func (s *contentSubscription[E]) Close() error {
 	s.abort()
+	// Join only the in-flight ownership transfer. Cleanup waits below must
+	// remain outside this mutex so concurrent Close callers can join together.
+	s.nextMu.Lock()
+	s.nextMu.Unlock() //nolint:staticcheck // Intentional empty critical section: join the current Next transfer.
 	<-s.done
 	<-s.watcherDone
 	return nil
 }
 
-func (s *contentSubscription[E]) next(ctx context.Context) (E, []ContentAudit, error) {
+// A destination failure leaves the full content event and audit with this
+// FIFO. No event or audit escapes without a reservation. The caller may retry
+// with another budget or Close to discard the unread ownership.
+func (s *contentSubscription[E]) nextWithBudget(ctx context.Context, destination MemoryBudget) (E, []ContentAudit, func(), error) {
 	var zero E
 	s.nextMu.Lock()
-	defer s.nextMu.Unlock()
+	closeAfter := false
+	defer func() {
+		s.nextMu.Unlock()
+		if closeAfter {
+			_ = s.Close()
+		}
+	}()
 	for {
 		if err := ctx.Err(); err != nil {
-			_ = s.Close()
-			return zero, nil, err
+			closeAfter = true
+			return zero, nil, nil, err
 		}
 		s.mu.Lock()
 		if s.first != nil {
@@ -239,32 +272,86 @@ func (s *contentSubscription[E]) next(ctx context.Context) (E, []ContentAudit, e
 			if s.first == nil {
 				s.last = nil
 			}
+			item.next = nil
 			s.mu.Unlock()
+			var retained func()
+			var err error
+			if destination != nil {
+				retained, err = destination.Reserve(saturatingAdd(transferValueBytes(item.event), transferValueBytes(item.audit)))
+			}
+			s.mu.Lock()
+			aborted := s.aborted
+			if err != nil && !aborted {
+				item.next = s.first
+				s.first = item
+				if s.last == nil {
+					s.last = item
+				}
+			}
+			s.mu.Unlock()
+			if aborted {
+				releaseContentOwnership(item.releases)
+				if retained != nil {
+					retained()
+				}
+				return zero, nil, nil, ErrClosed
+			}
+			if err != nil {
+				return zero, nil, nil, err
+			}
 			releaseContentOwnership(item.releases)
-			return item.event, item.audit, nil
+			return item.event, item.audit, retained, nil
 		}
 		if s.closed {
 			if s.aborted {
 				s.mu.Unlock()
-				return zero, nil, ErrClosed
+				return zero, nil, nil, ErrClosed
 			}
 			if s.terminalReturned {
 				s.mu.Unlock()
-				return zero, nil, ErrNextAfterTerminal
+				return zero, nil, nil, ErrNextAfterTerminal
 			}
-			s.terminalReturned = true
-			s.drainedOnce.Do(func() { close(s.drained) })
-			err, releases := s.terminal, s.terminalReleases
+			terminal, releases := s.terminal, s.terminalReleases
 			s.terminal, s.terminalReleases = nil, nil
 			s.mu.Unlock()
+			var retained func()
+			var err error
+			if destination != nil {
+				size := uint64(4096)
+				var contentTerminal *contentTerminalError
+				if errors.As(terminal, &contentTerminal) {
+					size = saturatingAdd(size, saturatingAdd(transferValueBytes(contentTerminal.Audit), transferValueBytes(contentTerminal.ContentAudit)))
+				}
+				retained, err = destination.Reserve(size)
+			}
+			s.mu.Lock()
+			aborted := s.aborted
+			if err != nil && !aborted {
+				s.terminal, s.terminalReleases = terminal, releases
+			}
+			if err == nil && !aborted {
+				s.terminalReturned = true
+				s.drainedOnce.Do(func() { close(s.drained) })
+			}
+			s.mu.Unlock()
+			if aborted {
+				releaseContentOwnership(releases)
+				if retained != nil {
+					retained()
+				}
+				return zero, nil, nil, ErrClosed
+			}
+			if err != nil {
+				return zero, nil, nil, err
+			}
 			releaseContentOwnership(releases)
-			return zero, nil, err
+			return zero, nil, retained, terminal
 		}
 		s.mu.Unlock()
 		select {
 		case <-ctx.Done():
-			_ = s.Close()
-			return zero, nil, ctx.Err()
+			closeAfter = true
+			return zero, nil, nil, ctx.Err()
 		case <-s.notify:
 		}
 	}
@@ -301,7 +388,6 @@ func (s *contentSubscription[E]) publish(event E, base, version uint64, tip Anch
 	return nil
 }
 func (s *contentSubscription[E]) finish(err error, audit AuditRange, content []ContentAudit, releases []func()) {
-	s.cancel()
 	s.mu.Lock()
 	if s.closed {
 		s.mu.Unlock()
@@ -309,6 +395,11 @@ func (s *contentSubscription[E]) finish(err error, audit AuditRange, content []C
 		return
 	}
 	s.closed = true
+	if s.life.Err() != nil {
+		err = nil
+	}
+	s.markTerminatedLocked(err)
+	s.cancel()
 	// The terminal cut precedes cleanup. Slow suppliers cannot hide the error.
 	for _, request := range s.active {
 		s.appendAuditLocked(request, ContentRequestUnfinished)

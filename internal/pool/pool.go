@@ -4,18 +4,17 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/url"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/codermaybe/ethguard/config"
+	"github.com/codermaybe/ethguard/internal/endpoint"
 	upstream "github.com/codermaybe/ethguard/internal/transport"
 )
 
 var (
-	ErrClosed      = errors.New("pool: closed")
-	ErrNoWSSSource = errors.New("pool: no WSS source configured")
+	ErrClosed               = errors.New("pool: closed")
+	ErrNoSubscriptionSource = errors.New("pool: no subscription-capable source configured")
 
 	// ErrNoEligibleSource reports that a fan-out was impossible: the pool has
 	// no registered source, or none passed its eligibility gates (open
@@ -28,9 +27,10 @@ var (
 	ErrAllSourcesDown = errors.New("pool: all upstream sources failed to respond")
 )
 
-// SubscriptionSources returns a stable snapshot of all explicitly configured
-// WebSocket sources. Membership is fixed for the lifetime of the pool; the
-// returned slice is a copy, so source health and connection state may change
+// SubscriptionSources returns a stable snapshot of members whose selected
+// dialer declared bounded subscription support at construction. Membership is
+// fixed for the lifetime of the pool; the returned slice is a copy, so source
+// health and connection state may change
 // without changing the subscription's source denominator. Transport
 // selection stays inside the pool composition boundary; callers receive only
 // capability-bearing sources and never parse URLs.
@@ -40,14 +40,13 @@ func (p *Pool) SubscriptionSources() ([]*Source, error) {
 	p.mu.RUnlock()
 	out := make([]*Source, 0, len(sources))
 	for _, source := range sources {
-		e, err := url.Parse(source.URL())
-		if err != nil || (e.Scheme != "ws" && e.Scheme != "wss") {
+		if !source.supportsSubscriptions {
 			continue
 		}
 		out = append(out, source)
 	}
 	if len(out) == 0 {
-		return nil, ErrNoWSSSource
+		return nil, ErrNoSubscriptionSource
 	}
 	return out, nil
 }
@@ -93,7 +92,10 @@ type Pool struct {
 // Member is one upstream configured at pool construction.
 type Member struct {
 	Name string
-	URL  string
+	// URL is accepted for direct pool construction and parsed once here.
+	// Runtime composition supplies the already resolved Endpoint instead.
+	URL      string
+	Endpoint endpoint.Endpoint
 	// Dialer selects this member's immutable connection factory. Nil uses
 	// the pool-wide default; it does not change membership or voting weight.
 	Dialer upstream.Dialer
@@ -133,11 +135,17 @@ func NewWithMembers(chainID uint64, members []Member, opts ...PoolOption) (*Pool
 // display names so diagnostics and metric labels cannot collide. Adapter
 // selection is immutable and never creates another source registry.
 func (p *Pool) admit(member Member) (*Source, error) {
-	name, rawURL := member.Name, member.URL
-	id, err := normalizeEndpointID(rawURL)
-	if err != nil {
-		return nil, err
+	parsed := member.Endpoint
+	if parsed.Kind() == 0 {
+		var err error
+		parsed, err = endpoint.Parse(member.URL)
+		if err != nil {
+			return nil, err
+		}
+	} else if member.URL != "" && member.URL != parsed.DialTarget() {
+		return nil, fmt.Errorf("resolved endpoint and URL disagree")
 	}
+	name, rawURL, id := member.Name, parsed.DialTarget(), parsed.CanonicalID()
 
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -160,16 +168,21 @@ func (p *Pool) admit(member Member) (*Source, error) {
 	if selectedDialer == nil {
 		selectedDialer = p.dialer
 	}
+	supportsSubscriptions := false
+	if capable, ok := selectedDialer.(upstream.BoundedSubscriberDialer); ok {
+		supportsSubscriptions = capable.SupportsBoundedSubscriptions()
+	}
 	life, cancelLife := context.WithCancel(context.Background())
 	src := &Source{
-		name:            name,
-		url:             rawURL,
-		id:              id,
-		dialer:          selectedDialer,
-		expectedChainID: p.expectedChainID,
-		life:            life,
-		cancelLife:      cancelLife,
-		state:           SourceDown,
+		name:                  name,
+		url:                   rawURL,
+		id:                    id,
+		dialer:                selectedDialer,
+		supportsSubscriptions: supportsSubscriptions,
+		expectedChainID:       p.expectedChainID,
+		life:                  life,
+		cancelLife:            cancelLife,
+		state:                 SourceDown,
 	}
 	p.sources = append(p.sources, src)
 	p.byID[id] = src
@@ -281,49 +294,6 @@ func (p *Pool) isClosed() bool {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	return p.closed
-}
-
-func normalizeEndpointID(raw string) (string, error) {
-	u, err := url.Parse(raw)
-	if err != nil {
-		return "", fmt.Errorf("pool: parse url: %w", err)
-	}
-	if u.Scheme == "" || u.Host == "" {
-		return "", fmt.Errorf("pool: url must include scheme and host")
-	}
-	u.Scheme = strings.ToLower(u.Scheme)
-	switch u.Scheme {
-	case "http", "https", "ws", "wss":
-	default:
-		return "", fmt.Errorf("pool: unsupported URL scheme %q", u.Scheme)
-	}
-	u.Host = strings.ToLower(u.Host)
-	if u.Path == "/" {
-		u.Path = ""
-	}
-	// Strip an explicit default port so the same node dialed as
-	// https://host and https://host:443 deduplicates to one member.
-	// Non-default ports stay significant: they address different listeners.
-	if isDefaultPort(u.Scheme, u.Port()) {
-		u.Host = u.Hostname()
-		if strings.Contains(u.Host, ":") {
-			u.Host = "[" + u.Host + "]" // IPv6 literal without port
-		}
-	}
-	return u.String(), nil
-}
-
-// isDefaultPort reports whether port is the conventional listener for
-// scheme. Empty means unspecified, never a default.
-func isDefaultPort(scheme, port string) bool {
-	switch scheme {
-	case "http", "ws":
-		return port == "80"
-	case "https", "wss":
-		return port == "443"
-	default:
-		return false
-	}
 }
 
 // SourceByID reports the registered source with this identity. Membership is

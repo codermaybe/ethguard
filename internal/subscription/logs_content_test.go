@@ -1,6 +1,7 @@
 package subscription
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -36,6 +37,10 @@ func logsJSON(t testing.TB, value any) json.RawMessage {
 }
 
 func makeLogsBlock(t testing.TB, parent *types.Header, number uint64, salt byte, counts ...int) logsBlockFixture {
+	return makeLogsBlockPayload(t, parent, number, salt, false, counts...)
+}
+
+func makeLogsBlockPayload(t testing.TB, parent *types.Header, number uint64, salt byte, payload bool, counts ...int) logsBlockFixture {
 	t.Helper()
 	key, err := crypto.HexToECDSA(strings.Repeat("01", 32))
 	if err != nil {
@@ -45,13 +50,25 @@ func makeLogsBlock(t testing.TB, parent *types.Header, number uint64, salt byte,
 	txs := make(types.Transactions, len(counts))
 	receipts := make(types.Receipts, len(counts))
 	for i, count := range counts {
-		txs[i], err = types.SignNewTx(key, types.LatestSignerForChainID(big.NewInt(1)), &types.LegacyTx{Nonce: uint64(i), To: &address, Gas: 21000, GasPrice: big.NewInt(2), Value: big.NewInt(0)})
+		var input []byte
+		if payload {
+			input = bytes.Repeat([]byte{byte(i), salt}, []int{32, 128, 512}[i%3]/2)
+		}
+		txs[i], err = types.SignNewTx(key, types.LatestSignerForChainID(big.NewInt(1)), &types.LegacyTx{Nonce: uint64(i), To: &address, Gas: 21000, GasPrice: big.NewInt(2), Value: big.NewInt(0), Data: input})
 		if err != nil {
 			t.Fatal(err)
 		}
 		receipts[i] = &types.Receipt{Status: 1, CumulativeGasUsed: uint64(i+1) * 21000, Logs: make([]*types.Log, count)}
 		for j := 0; j < count; j++ {
-			receipts[i].Logs[j] = &types.Log{Address: address, Topics: []common.Hash{common.BigToHash(big.NewInt(int64(i + 1)))}, Data: []byte{byte(j), salt}}
+			topics := []common.Hash{common.BigToHash(big.NewInt(int64(i + 1)))}
+			data := []byte{byte(j), salt}
+			if payload {
+				data = bytes.Repeat([]byte{byte(j), salt}, []int{32, 128, 256}[(i+j)%3]/2)
+				for k := 0; k < (i+j)%3; k++ {
+					topics = append(topics, common.BigToHash(big.NewInt(int64(100+k))))
+				}
+			}
+			receipts[i].Logs[j] = &types.Log{Address: address, Topics: topics, Data: data}
 		}
 		receipts[i].Bloom = types.CreateBloom(receipts[i])
 	}

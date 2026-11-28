@@ -491,7 +491,7 @@ func replayCapturedCase(t *testing.T, mode string, floor int, group []rpcsample.
 			ref = established
 		}
 	}
-	prepared, _, prepErr := plan.PrepareWithReference(req, ref, needed)
+	prepared, _, prepErr := plan.PrepareWithReference(req, ref, needed, rpcengine.Basis{Corroboration: snap})
 	if entry != nil && prepErr == nil {
 		// Three prepared-consistency gates, in contract terms:
 		//  - the recorded request itself equals the prepared request built

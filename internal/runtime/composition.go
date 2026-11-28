@@ -9,13 +9,14 @@ package runtime
 
 import (
 	"fmt"
-	"net/url"
 	"time"
 
 	"github.com/codermaybe/ethguard/config"
+	"github.com/codermaybe/ethguard/internal/endpoint"
 	"github.com/codermaybe/ethguard/internal/pool"
 	"github.com/codermaybe/ethguard/internal/rpcengine"
 	nativehttp "github.com/codermaybe/ethguard/internal/transport/http"
+	"github.com/codermaybe/ethguard/internal/transport/ipc"
 	"github.com/codermaybe/ethguard/internal/transport/wss"
 	"github.com/codermaybe/ethguard/observe"
 	"github.com/codermaybe/ethguard/rpc"
@@ -59,6 +60,17 @@ type Composition struct {
 // resolver, the method catalog, and the aggregate execution pipeline. Dialing
 // each source is deferred until its first call.
 func Compose(in Composition) (*Bundle, error) {
+	if len(in.Upstreams) == 0 {
+		return nil, fmt.Errorf("at least one upstream is required")
+	}
+	if len(in.Upstreams) == 1 && in.Anchoring != nil && in.Anchoring.Finalized {
+		return nil, fmt.Errorf("finalized anchoring requires at least two distinct upstreams: %w", rpc.ErrInvalidRequest)
+	}
+	normalized, err := config.Normalize(config.Config{Upstreams: in.Upstreams})
+	if err != nil {
+		return nil, err
+	}
+	in.Upstreams = normalized.Upstreams
 	poolOpts := make([]pool.PoolOption, 0, 2)
 	if in.TipTracking != nil {
 		poolOpts = append(poolOpts, pool.WithTipTracking(in.TipTracking.Interval, in.TipTracking.MaxBehind))
@@ -67,17 +79,20 @@ func Compose(in Composition) (*Bundle, error) {
 
 	members := make([]pool.Member, 0, len(in.Upstreams))
 	for _, upstream := range in.Upstreams {
-		member := pool.Member{Name: upstream.ID, URL: upstream.Endpoint}
-		if upstream.Transport == "" {
-			if endpoint, parseErr := url.Parse(upstream.Endpoint); parseErr == nil && (endpoint.Scheme == "ws" || endpoint.Scheme == "wss") {
-				return nil, fmt.Errorf("source %q: websocket endpoint requires transport: wss", upstream.ID)
-			}
+		parsed, parseErr := endpoint.Parse(upstream.Endpoint)
+		if parseErr != nil {
+			return nil, fmt.Errorf("source %q: %w", upstream.ID, parseErr)
 		}
+		member := pool.Member{Name: upstream.ID, Endpoint: parsed}
 		switch upstream.Transport {
 		case config.TransportNativeHTTP:
 			member.Dialer = nativehttp.NewDialer()
 		case config.TransportWSS:
 			member.Dialer = wss.NewDialer()
+		case config.TransportIPC:
+			member.Dialer = ipc.NewDialer()
+		default:
+			return nil, fmt.Errorf("source %q: unsupported transport %q", upstream.ID, upstream.Transport)
 		}
 		members = append(members, member)
 	}
@@ -96,7 +111,7 @@ func Compose(in Composition) (*Bundle, error) {
 	// trailing slash) into one member, and a silent fold would shrink the
 	// basis below the operator's declared trust set. Config rejects
 	// normalized duplicates first; this check is the composition-side
-	// backstop against drift between the two identity rules.
+	// backstop for the declared voting basis.
 	if got, want := rpcPool.Len(), len(in.Upstreams); got != want {
 		return nil, fmt.Errorf("register upstreams: %d configured upstreams collapsed to %d pool members: remove duplicate endpoints after normalization (scheme/host case, default ports, trailing slash)", want, got)
 	}
@@ -129,7 +144,7 @@ func Compose(in Composition) (*Bundle, error) {
 	referenceRule := corrob
 	if in.Anchoring != nil && in.Anchoring.Finalized {
 		// Standalone finalized queries retain the preset's majority floor,
-		// including strict safe queries and single-source clients.
+		// including strict safe queries.
 		referenceRule = rpcengine.Corroboration{Mode: rpc.CorroborationMajority, Floor: 2}
 	}
 	bundle.Pool = rpcPool

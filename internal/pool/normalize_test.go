@@ -16,11 +16,11 @@ func TestNormalizeEndpointIDDedupsDefaultPorts(t *testing.T) {
 		{"https://example.com/", "https://example.com"},
 	}
 	for _, pair := range same {
-		a, err := normalizeEndpointID(pair[0])
+		a, err := config.CanonicalEndpoint(pair[0])
 		if err != nil {
 			t.Fatalf("normalize %q: %v", pair[0], err)
 		}
-		b, err := normalizeEndpointID(pair[1])
+		b, err := config.CanonicalEndpoint(pair[1])
 		if err != nil {
 			t.Fatalf("normalize %q: %v", pair[1], err)
 		}
@@ -35,11 +35,11 @@ func TestNormalizeEndpointIDDedupsDefaultPorts(t *testing.T) {
 		{"https://example.com", "http://example.com"},
 	}
 	for _, pair := range distinct {
-		a, err := normalizeEndpointID(pair[0])
+		a, err := config.CanonicalEndpoint(pair[0])
 		if err != nil {
 			t.Fatalf("normalize %q: %v", pair[0], err)
 		}
-		b, err := normalizeEndpointID(pair[1])
+		b, err := config.CanonicalEndpoint(pair[1])
 		if err != nil {
 			t.Fatalf("normalize %q: %v", pair[1], err)
 		}
@@ -49,17 +49,17 @@ func TestNormalizeEndpointIDDedupsDefaultPorts(t *testing.T) {
 	}
 
 	for _, raw := range []string{"", "://bad", "example.com/no-scheme", "ftp://example.com/x", "http://"} {
-		if _, err := normalizeEndpointID(raw); err == nil {
+		if _, err := config.CanonicalEndpoint(raw); err == nil {
 			t.Fatalf("expected %q to fail normalization", raw)
 		}
 	}
 }
 
-// TestNormalizeEndpointIDMatchesConfigCanonical pins the cross-package
+// TestPoolMembershipUsesConfigCanonicalIdentity pins the cross-package
 // identity agreement: config's canonicalEndpoint must reduce endpoints to the
 // same identity pool deduplicates by, or the composition backstop (declared
 // upstream count vs pool membership) would fire on valid configurations.
-func TestNormalizeEndpointIDMatchesConfigCanonical(t *testing.T) {
+func TestPoolMembershipUsesConfigCanonicalIdentity(t *testing.T) {
 	same := [][2]string{
 		{"https://example.com/x", "https://example.com:443/x"},
 		{"http://example.com", "http://example.com:80"},
@@ -68,10 +68,12 @@ func TestNormalizeEndpointIDMatchesConfigCanonical(t *testing.T) {
 		{"https://[2001:db8::1]:443", "https://[2001:db8::1]"},
 	}
 	for _, pair := range same {
-		a, err := normalizeEndpointID(pair[0])
+		p, err := NewWithMembers(0, []Member{{Name: "source", URL: pair[0]}})
 		if err != nil {
-			t.Fatalf("normalize %q: %v", pair[0], err)
+			t.Fatal(err)
 		}
+		t.Cleanup(p.Close)
+		a := p.Sources()[0].ID()
 		b, err := config.CanonicalEndpoint(pair[1])
 		if err != nil {
 			t.Fatalf("config canonical %q: %v", pair[1], err)

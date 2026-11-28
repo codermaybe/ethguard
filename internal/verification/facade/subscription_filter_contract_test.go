@@ -44,7 +44,7 @@ func TestSubscribeTransactionReceiptsRejectsInvalidFilterBeforeEstablishing(t *t
 				var client *ethguard.Client
 				if single {
 					var err error
-					client, err = ethguard.DialUncorroborated(peers[0].endpoint)
+					client, err = ethguard.Dial(peers[0].endpoint)
 					if err != nil {
 						t.Fatal(err)
 					}
@@ -96,7 +96,7 @@ func TestSubscribeTransactionReceiptsPublicEntrypointsFollowHeadAndFreezeFilter(
 					var client *ethguard.Client
 					if single {
 						var err error
-						client, err = ethguard.DialUncorroborated(peers[0].endpoint)
+						client, err = ethguard.Dial(peers[0].endpoint)
 						if err != nil {
 							t.Fatal(err)
 						}
@@ -543,7 +543,7 @@ func TestSubscribeFilterLogsPublicEntrypointsProveNonemptyBlock(t *testing.T) {
 			var client *ethguard.Client
 			if tc.single {
 				var err error
-				client, err = ethguard.DialUncorroborated(a.endpoint)
+				client, err = ethguard.Dial(a.endpoint)
 				if err != nil {
 					t.Fatal(err)
 				}

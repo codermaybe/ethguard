@@ -19,7 +19,7 @@ func TestExplicitTransportEndpointValidation(t *testing.T) {
 		{"HTTP cannot silently switch", TransportNativeHTTP, "wss://provider.example", "http(s)"},
 		{"WSS cannot silently switch", TransportWSS, "https://provider.example", "ws(s)"},
 		{"compatibility websocket may omit selection", "", "wss://provider.example", ""},
-		{"unsupported default scheme", "", "ipc:///tmp/ethguard.ipc", "valid scheme and host"},
+		{"inferred IPC", "", "ipc:///tmp/ethguard.ipc", ""},
 		{"unknown transport", "automatic", "https://provider.example", "unknown transport"},
 		{"missing host", TransportWSS, "wss:///only-path", "scheme and host"},
 	} {

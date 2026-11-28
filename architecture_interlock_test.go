@@ -27,7 +27,7 @@ func isCorePackage(path string) bool {
 		return false
 	}
 	for _, consumer := range []string{
-		"/cmd", "/examples", "/rpctest", "/internal/diag",
+		"/cmd", "/examples", "/rpctest", "/internal/diag", "/ethadapter",
 		"/internal/testkit", "/internal/verification",
 	} {
 		if inPackageTree(path, modulePath+consumer) {
@@ -96,25 +96,37 @@ func TestArchitectureDependencyInterlock(t *testing.T) {
 				t.Errorf("production package %s imports verification-only package %s", pkg.ImportPath, imp)
 			}
 		}
-		// Only the differential oracle may import ethclient. Production
-		// imports of go-ethereum/rpc stay confined to the oracle and cmd/*
-		// diagnostics; core and transport packages cannot import it.
-		if imports["github.com/ethereum/go-ethereum/ethclient"] && pkg.ImportPath != modulePath+"/internal/testkit/gethoracle" {
-			t.Errorf("%s imports ethclient; it is confined to the differential oracle", pkg.ImportPath)
+		// The differential oracle and peripheral ethadapter may import
+		// ethclient. gethrpc additionally serves cmd/* diagnostics; core
+		// execution and transport packages cannot import either client.
+		if imports["github.com/ethereum/go-ethereum/ethclient"] && pkg.ImportPath != modulePath+"/internal/testkit/gethoracle" && pkg.ImportPath != modulePath+"/ethadapter" {
+			t.Errorf("%s imports ethclient; it is confined to the differential oracle and ethadapter", pkg.ImportPath)
 		}
 		if imports["github.com/ethereum/go-ethereum/rpc"] {
 			switch {
-			case pkg.ImportPath == modulePath+"/internal/testkit/gethoracle",
+			case pkg.ImportPath == modulePath+"/internal/testkit/gethoracle", pkg.ImportPath == modulePath+"/ethadapter",
 				strings.HasPrefix(pkg.ImportPath, modulePath+"/cmd/"):
 			default:
-				t.Errorf("%s imports gethrpc; production imports are confined to the oracle and cmd/*", pkg.ImportPath)
+				t.Errorf("%s imports gethrpc; production imports are confined to ethadapter, the oracle and cmd/*", pkg.ImportPath)
 			}
 		}
 
+		if inPackageTree(pkg.ImportPath, modulePath+"/ethadapter") {
+			for imp := range imports {
+				if inPackageTree(imp, modulePath+"/internal") {
+					t.Errorf("adapter %s imports private package %s", pkg.ImportPath, imp)
+				}
+			}
+		}
 		// Diagnostics consume the core runtime. The whole diagnostic tree,
 		// including future packages, is forbidden in core production imports.
 		if isCorePackage(pkg.ImportPath) {
 			banDiagnosticImports(t, pkg, imports)
+			for imp := range imports {
+				if inPackageTree(imp, modulePath+"/ethadapter") {
+					t.Errorf("core package %s imports peripheral adapter %s", pkg.ImportPath, imp)
+				}
+			}
 		}
 
 		// Objects own representation, integrity and request binding in one
@@ -138,10 +150,32 @@ func TestArchitectureDependencyInterlock(t *testing.T) {
 		}
 
 		switch pkg.ImportPath {
+		case modulePath + "/ethadapter":
+			for _, imp := range pkg.Imports {
+				if !strings.Contains(strings.Split(imp, "/")[0], ".") {
+					continue
+				}
+				switch imp {
+				case modulePath, modulePath + "/ethapi", modulePath + "/rpc",
+					"github.com/ethereum/go-ethereum", "github.com/ethereum/go-ethereum/common",
+					"github.com/ethereum/go-ethereum/core/types", "github.com/ethereum/go-ethereum/crypto",
+					"github.com/ethereum/go-ethereum/trie", "github.com/ethereum/go-ethereum/ethclient", "github.com/ethereum/go-ethereum/rpc":
+				default:
+					t.Errorf("ethadapter imports unapproved production dependency %s", imp)
+				}
+			}
+		case modulePath + "/internal/endpoint":
+			// Endpoint syntax and identity are shared data concerns. Keep the
+			// parser independent of configuration, transports and execution.
+			for _, imp := range pkg.Imports {
+				if inPackageTree(imp, modulePath) || strings.Contains(strings.Split(imp, "/")[0], ".") {
+					t.Errorf("endpoint parser imports non-standard dependency %s", imp)
+				}
+			}
 		case modulePath:
 			rootUsesRuntime = imports[modulePath+"/internal/runtime"]
 
-			if imports[modulePath+"/internal/transport/http"] || imports[modulePath+"/internal/transport/wss"] {
+			if imports[modulePath+"/internal/transport/http"] || imports[modulePath+"/internal/transport/wss"] || imports[modulePath+"/internal/transport/ipc"] {
 				t.Error("root facade imports a concrete transport; the composition root assembles them in internal/runtime")
 			}
 		case modulePath + "/rpc":
@@ -212,6 +246,28 @@ func TestArchitectureDependencyInterlock(t *testing.T) {
 					t.Errorf("internal/transport/wss imports %s; WSS owns only the raw-call transport seam", banned)
 				}
 			}
+		case modulePath + "/internal/transport/streamrpc":
+			for _, imp := range pkg.Imports {
+				if !strings.Contains(strings.Split(imp, "/")[0], ".") {
+					continue
+				}
+				switch imp {
+				case modulePath + "/internal/rpcwire", modulePath + "/internal/transport", modulePath + "/rpc":
+				default:
+					t.Errorf("streamrpc imports %s; duplex RPC must depend only on its wire codec and neutral ports", imp)
+				}
+			}
+		case modulePath + "/internal/transport/ipc":
+			for _, imp := range pkg.Imports {
+				if !strings.Contains(strings.Split(imp, "/")[0], ".") {
+					continue
+				}
+				switch imp {
+				case modulePath + "/internal/endpoint", modulePath + "/internal/jsonsafe", modulePath + "/internal/limits", modulePath + "/internal/transport", modulePath + "/internal/transport/streamrpc", "github.com/Microsoft/go-winio":
+				default:
+					t.Errorf("ipc imports %s; local framing must not reach execution or another transport", imp)
+				}
+			}
 		}
 	}
 	if err := cmd.Wait(); err != nil {
@@ -230,18 +286,18 @@ func TestArchitectureDependencyInterlock(t *testing.T) {
 // default build nor the WSS production path may reach a third-party websocket
 // library on a production execution path — the owned wire stack replaced it.
 // Core production packages cannot import go-ethereum/rpc; the direct-import
-// gate above permits only command diagnostics and the differential oracle.
+// gate above permits only ethadapter, command diagnostics and the oracle.
 // gorilla/websocket may appear in the default build through go-ethereum's own
 // packages, but no EthGuard package may link it directly and the WSS production
 // dependency graph must exclude it entirely.
 func TestDefaultBuildExcludesEthclient(t *testing.T) {
-	out, err := exec.CommandContext(t.Context(), "go", "list", "-deps", ".", "./internal/runtime").Output()
+	out, err := exec.CommandContext(t.Context(), "go", "list", "-deps", ".", "./internal/runtime", "./ethapi").Output()
 	if err != nil {
 		t.Fatalf("go list -deps root/runtime: %v", err)
 	}
 	for _, line := range strings.Split(string(out), "\n") {
-		if line == "github.com/ethereum/go-ethereum/ethclient" {
-			t.Fatal("the root/runtime dependency graph links ethclient")
+		if line == "github.com/ethereum/go-ethereum/ethclient" || inPackageTree(line, modulePath+"/ethadapter") {
+			t.Fatal("the core dependency graph links ethclient or ethadapter")
 		}
 		if line == modulePath+"/internal/testkit/gethoracle" {
 			t.Fatal("the root/runtime dependency graph links the differential oracle")
@@ -260,7 +316,7 @@ func TestDefaultBuildExcludesEthclient(t *testing.T) {
 			t.Fatalf("default build links gorilla/websocket from %s; only go-ethereum's own packages may carry it", importer)
 		}
 	}
-	wire, err := exec.CommandContext(t.Context(), "go", "list", "-deps", "./internal/transport/wss", "./cmd/wsscapture").Output()
+	wire, err := exec.CommandContext(t.Context(), "go", "list", "-deps", "./internal/transport/streamrpc", "./internal/transport/wss", "./cmd/wsscapture").Output()
 	if err != nil {
 		t.Fatalf("go list -deps wss/capture: %v", err)
 	}

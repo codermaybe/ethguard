@@ -129,7 +129,7 @@ func TestPlanRequirementFieldsDefaultMissingBoundsToLatest(t *testing.T) {
 
 func TestPlanPrepareRewritesHashPositions(t *testing.T) {
 	plan := ReadPlan{Method: "eth_plan", Reference: ReferenceSpec{Kind: ReferenceShapeHashAt, Positions: []int{1}}}
-	prepared, pin, err := plan.PrepareWithReference(rpc.Request{Method: plan.Method, Params: []any{"0x1", "latest"}}, planEvidence("latest"), true)
+	prepared, pin, err := plan.PrepareWithReference(rpc.Request{Method: plan.Method, Params: []any{"0x1", "latest"}}, planEvidence("latest"), true, planTestBasis())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -143,7 +143,7 @@ func TestPlanPrepareRewritesHashPositions(t *testing.T) {
 	// pin is invented for them.
 	for _, passthrough := range []any{"0x5", "0xabc", "pending"} {
 		params := []any{"0x1", passthrough}
-		prepared, pin, err := plan.PrepareWithReference(rpc.Request{Method: plan.Method, Params: params}, planEvidence("latest"), false)
+		prepared, pin, err := plan.PrepareWithReference(rpc.Request{Method: plan.Method, Params: params}, planEvidence("latest"), false, planTestBasis())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -155,7 +155,7 @@ func TestPlanPrepareRewritesHashPositions(t *testing.T) {
 
 func TestPlanPrepareRewritesHeightPositionsAndFields(t *testing.T) {
 	heightPlan := ReadPlan{Method: "eth_plan", Reference: ReferenceSpec{Kind: ReferenceShapeHeightAt, Positions: []int{1}}}
-	prepared, pin, err := heightPlan.PrepareWithReference(rpc.Request{Method: heightPlan.Method, Params: []any{"0x5", "latest"}}, planEvidence("latest"), true)
+	prepared, pin, err := heightPlan.PrepareWithReference(rpc.Request{Method: heightPlan.Method, Params: []any{"0x5", "latest"}}, planEvidence("latest"), true, planTestBasis())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,7 +167,7 @@ func TestPlanPrepareRewritesHeightPositionsAndFields(t *testing.T) {
 	}
 
 	fieldsPlan := ReadPlan{Method: "eth_plan", Reference: ReferenceSpec{Kind: ReferenceShapeHeightFieldsAt, ParamPos: 0, Fields: []string{"fromBlock", "toBlock"}}}
-	prepared, pin, err = fieldsPlan.PrepareWithReference(rpc.Request{Method: fieldsPlan.Method, Params: []any{map[string]any{"fromBlock": "latest"}}}, planEvidence("latest"), true)
+	prepared, pin, err = fieldsPlan.PrepareWithReference(rpc.Request{Method: fieldsPlan.Method, Params: []any{map[string]any{"fromBlock": "latest"}}}, planEvidence("latest"), true, planTestBasis())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -183,7 +183,7 @@ func TestPlanPrepareRewritesHeightPositionsAndFields(t *testing.T) {
 func TestPlanPrepareRewritesEIP1898ObjectAndPreservesRequireCanonical(t *testing.T) {
 	plan := ReadPlan{Method: "eth_plan", Reference: ReferenceSpec{Kind: ReferenceShapeHashAt, Positions: []int{1}, EIP1898: true}}
 	prepared, pin, err := plan.PrepareWithReference(rpc.Request{Method: plan.Method, Params: []any{"0x1", map[string]any{"blockNumber": "safe", "requireCanonical": true}}},
-		planEvidence("safe"), true)
+		planEvidence("safe"), true, planTestBasis())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,7 +205,7 @@ func TestPlanPrepareRejectsInvalidEIP1898ObjectsBeforeAnyRewrite(t *testing.T) {
 		{"0x1", map[string]any{"blockNumber": "latest", "requireCanonical": "yes"}},
 	}
 	for _, params := range cases {
-		if _, _, err := plan.PrepareWithReference(rpc.Request{Method: plan.Method, Params: params}, planEvidence("latest"), true); !errors.Is(err, rpc.ErrInvalidRequest) {
+		if _, _, err := plan.PrepareWithReference(rpc.Request{Method: plan.Method, Params: params}, planEvidence("latest"), true, planTestBasis()); !errors.Is(err, rpc.ErrInvalidRequest) {
 			t.Fatalf("params %v: err=%v, want ErrInvalidRequest", params, err)
 		}
 	}
@@ -215,21 +215,21 @@ func TestPlanPrepareFailsWhenEvidenceDoesNotServeTheTag(t *testing.T) {
 	plan := ReadPlan{Method: "eth_plan", Reference: ReferenceSpec{Kind: ReferenceShapeHashAt, Positions: []int{0}}}
 	// The read declared safe; only latest evidence exists. A level is never
 	// silently downgraded: the read fails the way a missing reference would.
-	_, _, err := plan.PrepareWithReference(rpc.Request{Method: plan.Method, Params: []any{"safe"}}, planEvidence("latest"), true)
+	_, _, err := plan.PrepareWithReference(rpc.Request{Method: plan.Method, Params: []any{"safe"}}, planEvidence("latest"), true, planTestBasis())
 	if !errors.Is(err, rpc.ErrReferenceRequired) {
 		t.Fatalf("err=%v, want ErrReferenceRequired", err)
 	}
 	// Uncorroborated evidence never rewrites a request.
 	uncorroborated := planEvidence("latest")
 	uncorroborated.Status = rpc.Unknown
-	if _, _, err := plan.PrepareWithReference(rpc.Request{Method: plan.Method, Params: []any{"latest"}}, uncorroborated, true); !errors.Is(err, rpc.ErrGuaranteeNotMet) {
+	if _, _, err := plan.PrepareWithReference(rpc.Request{Method: plan.Method, Params: []any{"latest"}}, uncorroborated, true, planTestBasis()); !errors.Is(err, rpc.ErrGuaranteeNotMet) {
 		t.Fatalf("err=%v, want ErrGuaranteeNotMet", err)
 	}
 }
 
 func TestPlanPrepareRejectsMixedMovingTagsLocally(t *testing.T) {
 	plan := ReadPlan{Method: "eth_plan", Reference: ReferenceSpec{Kind: ReferenceShapeHashAt, Positions: []int{0, 1}}}
-	_, _, err := plan.PrepareWithReference(rpc.Request{Method: plan.Method, Params: []any{"latest", "safe"}}, planEvidence("latest"), true)
+	_, _, err := plan.PrepareWithReference(rpc.Request{Method: plan.Method, Params: []any{"latest", "safe"}}, planEvidence("latest"), true, planTestBasis())
 	if !errors.Is(err, rpc.ErrInvalidRequest) {
 		t.Fatalf("err=%v, want ErrInvalidRequest", err)
 	}
@@ -298,4 +298,8 @@ func TestPlanResolveLocalObservationStandsFirstNormalizableSource(t *testing.T) 
 	if decision.Decision.Status != rpc.Unknown || err == nil {
 		t.Fatalf("no usable source: status=%v err=%v, want Unknown with an error", decision.Decision.Status, err)
 	}
+}
+
+func planTestBasis() Basis {
+	return FreezeBasis([]rpc.SourceRef{{ID: "a"}, {ID: "b"}}, Corroboration{Mode: rpc.CorroborationMajority, Floor: 2})
 }

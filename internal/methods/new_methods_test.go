@@ -65,7 +65,7 @@ func TestCreateAccessListPolicyAnchoringAndNormalization(t *testing.T) {
 			Params: []any{map[string]any{"to": "0x1234"}, "latest"},
 		}
 		ref := rpc.ReferenceEvidence{Hash: anchored, Status: rpc.Corroborated}
-		prepared, pin, err := plan.PrepareWithReference(req, ref, true)
+		prepared, pin, err := plan.PrepareWithReference(req, ref, true, planTestBasis())
 		if err != nil {
 			t.Fatal(err)
 		}

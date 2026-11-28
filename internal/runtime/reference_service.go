@@ -18,7 +18,8 @@ const anchorMethodName = "anchor"
 // headAnchorPolicy is the strict head policy for reference establishment: it
 // preserves the winning source's spelling in the decision value (the anchor
 // evidence keeps the source's own wire form; the request path lowercases the
-// derived hash separately), and requires a corroborated result.
+// derived hash separately). Reference admissibility is checked against the
+// invocation's purpose and frozen basis after the round has formed evidence.
 type headAnchorPolicy struct {
 	resolver rpcengine.CorroboratingResolver
 }
@@ -26,14 +27,14 @@ type headAnchorPolicy struct {
 func (p headAnchorPolicy) ResolveCorroborated(c rpcengine.Corroboration, obs []rpc.Observation) (rpcengine.Outcome, error) {
 	d, err := p.resolver.ResolveCorroborated(c, obs)
 	d.Decision = restoreAnchorSourceValue(d.Decision, obs)
-	return p.requireCorroborated(d, err)
+	return d, err
 }
 
 // Anchor comparison uses the canonical head encoder, but the anchor decision
 // is an internal reference observation and must preserve the winning source's
 // wire spelling. The request path lowercases the derived hash separately.
 func restoreAnchorSourceValue(d rpc.Decision, obs []rpc.Observation) rpc.Decision {
-	if d.Status != rpc.Corroborated || d.Representative.ID == "" {
+	if (d.Status != rpc.Corroborated && d.Status != rpc.Forwarded) || d.Representative.ID == "" {
 		return d
 	}
 	for _, item := range obs {
@@ -43,14 +44,6 @@ func restoreAnchorSourceValue(d rpc.Decision, obs []rpc.Observation) rpc.Decisio
 		}
 	}
 	return d
-}
-
-func (p headAnchorPolicy) requireCorroborated(d rpcengine.Outcome, err error) (rpcengine.Outcome, error) {
-	if err == nil && d.Decision.Status != rpc.Corroborated {
-		d.Decision.Adjudication.Reason = rpc.ReasonGuaranteeNotMet
-		err = fmt.Errorf("uncorroborated anchor: %w", rpc.ErrGuaranteeNotMet)
-	}
-	return d, err
 }
 
 func blockRefFromDecision(d rpc.Decision) (string, uint64, error) {
@@ -85,7 +78,7 @@ func NewReferenceService(stage *ReferenceStage, rule rpcengine.Corroboration) *R
 // routes latest through finalized candidate selection and confirmation.
 // Freshness is per call, with the pool's current voting membership frozen.
 func (s *ReferenceService) Reference(ctx context.Context) (rpc.ReferenceEvidence, error) {
-	return s.establish(ctx, rpc.ReferenceLatest)
+	return s.establish(ctx, rpc.ReferenceLatest, rpcengine.ReferencePurposeStandaloneAnchor)
 }
 
 // ReferenceForTag establishes the reference for exactly the requested tag.
@@ -95,15 +88,22 @@ func (s *ReferenceService) ReferenceForTag(ctx context.Context, tag string) (rpc
 	if tag == "" || tag == string(rpc.ReferenceLatest) {
 		return s.Reference(ctx)
 	}
-	return s.establish(ctx, rpc.ReferenceKindForTag(tag))
+	return s.establish(ctx, rpc.ReferenceKindForTag(tag), rpcengine.ReferencePurposeStandaloneAnchor)
+}
+
+// BusinessReferenceForTag establishes the pin for a composite business read.
+// It shares the standalone query's stage and frozen construction rule, while
+// permitting honest Forwarded evidence on a singleton basis.
+func (s *ReferenceService) BusinessReferenceForTag(ctx context.Context, tag string) (rpc.ReferenceEvidence, error) {
+	return s.establish(ctx, rpc.ReferenceKindForTag(tag), rpcengine.ReferencePurposeBusiness)
 }
 
 // establish runs the shared stage on a fresh invocation with the current
 // members and this service's fixed rule. The stage returns its evidence
 // beside the error, preserving partial evidence from failed rounds.
-func (s *ReferenceService) establish(ctx context.Context, kind rpc.ReferenceKind) (rpc.ReferenceEvidence, error) {
+func (s *ReferenceService) establish(ctx context.Context, kind rpc.ReferenceKind, purpose rpcengine.ReferencePurpose) (rpc.ReferenceEvidence, error) {
 	refs := s.stage.memberRefs()
-	evidence, err := s.stage.Establish(ctx, facadeInvocation(ctx, refs, s.rule), rpc.ReferenceRequest{Kind: kind})
+	evidence, err := s.stage.establish(ctx, facadeInvocation(ctx, refs, s.rule), rpc.ReferenceRequest{Kind: kind}, purpose)
 	if err != nil {
 		if evidence == nil {
 			return rpc.ReferenceEvidence{}, err

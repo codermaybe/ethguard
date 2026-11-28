@@ -28,12 +28,16 @@ type Source struct {
 	id string
 
 	// dialer dials the endpoint on first use. Injected for testability.
-	dialer           upstream.Dialer
-	expectedChainID  uint64
-	identityMu       sync.Mutex
-	identityChecked  bool
-	identityInvalid  bool
-	identityChecking chan struct{}
+	dialer upstream.Dialer
+	// supportsSubscriptions is the dialer's construction-time capability
+	// snapshot. Reconnection, source health and mutable dialer options cannot
+	// change the membership of subscription voting bases.
+	supportsSubscriptions bool
+	expectedChainID       uint64
+	identityMu            sync.Mutex
+	identityChecked       bool
+	identityInvalid       bool
+	identityChecking      chan struct{}
 
 	// life is cancelled when the source closes; it aborts any in-flight dial.
 	life       context.Context

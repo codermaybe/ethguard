@@ -29,7 +29,7 @@ func TestValidateDomainMatchesEthguardNew(t *testing.T) {
 		want string // substring of the expected error; empty means valid
 	}{
 		{"missing upstreams", Config{}, "at least one upstream"},
-		{"missing id", Config{Upstreams: []Upstream{{Endpoint: "https://a.example"}}}, "id is required"},
+		{"omitted id", Config{Upstreams: []Upstream{{Endpoint: "https://a.example"}}}, ""},
 		{"whitespace id", Config{Upstreams: []Upstream{{ID: "  ", Endpoint: "https://a.example"}}}, "id is required"},
 		{"missing endpoint", Config{Upstreams: []Upstream{{ID: "a"}}}, "endpoint is required"},
 		{"whitespace endpoint", Config{Upstreams: []Upstream{{ID: "a", Endpoint: "  "}}}, "endpoint is required"},

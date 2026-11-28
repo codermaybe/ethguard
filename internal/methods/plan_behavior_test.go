@@ -452,17 +452,17 @@ func TestPlansServeTheDeclaredTag(t *testing.T) {
 			} else {
 				wrong.Tag = ""
 			}
-			if _, _, err := plan.PrepareWithReference(req, wrong, true); !errors.Is(err, rpc.ErrReferenceRequired) {
+			if _, _, err := plan.PrepareWithReference(req, wrong, true, planTestBasis()); !errors.Is(err, rpc.ErrReferenceRequired) {
 				t.Fatalf("mismatched tag: err = %v, want ErrReferenceRequired", err)
 			}
 			// Uncorroborated evidence never rewrites a request.
 			unconfirmed := fixtureReference(tag)
 			unconfirmed.Status = rpc.Selected
-			if _, _, err := plan.PrepareWithReference(req, unconfirmed, true); !errors.Is(err, rpc.ErrGuaranteeNotMet) {
+			if _, _, err := plan.PrepareWithReference(req, unconfirmed, true, planTestBasis()); !errors.Is(err, rpc.ErrGuaranteeNotMet) {
 				t.Fatalf("uncorroborated: err = %v, want ErrGuaranteeNotMet", err)
 			}
 			// Serving evidence rewrites and records the pin.
-			_, pin, err := plan.PrepareWithReference(req, fixtureReference(tag), true)
+			_, pin, err := plan.PrepareWithReference(req, fixtureReference(tag), true, planTestBasis())
 			if err != nil {
 				t.Fatalf("serving evidence failed: %v", err)
 			}

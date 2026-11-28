@@ -1,15 +1,16 @@
 package ethguard
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/codermaybe/ethguard/config"
 )
 
-func TestDefaultClientRequiresExplicitWSSSelection(t *testing.T) {
+func TestDefaultClientInfersWSSSelection(t *testing.T) {
 	cfg := config.Config{Upstreams: []config.Upstream{{ID: "ws", Endpoint: "wss://provider.example"}}}
-	if _, err := New(cfg); err == nil || !strings.Contains(err.Error(), "requires transport: wss") {
-		t.Fatalf("New error = %v, want explicit WSS transport diagnostic", err)
+	client, err := New(cfg)
+	if err != nil {
+		t.Fatalf("New must infer WSS transport: %v", err)
 	}
+	t.Cleanup(client.Close)
 }

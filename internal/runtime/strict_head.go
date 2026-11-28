@@ -25,7 +25,7 @@ func taggedOriginTag(tag string) string {
 
 // StrictHeadEstablishment runs the strict head establishment algorithm: one
 // voting fan-out over a frozen member snapshot, strict clustering on the head
-// identity under a corroboration snapshot, and the Corroborated gate.
+// identity under a corroboration snapshot, and the purpose's reference gate.
 //
 // It is the one implementation for strict head references. Both the
 // establishment stage (reference rounds inside a business invocation) and the
@@ -87,7 +87,7 @@ func referenceTipFreshness(tag string) pool.TipFreshnessScope {
 // Every round uses fixed-basis voting with the caller's construction rule.
 // A failed round returns partial evidence alongside the error: the faults stay
 // on the reference the caller sees.
-func (e *StrictHeadEstablishment) establish(ctx context.Context, members []*pool.Source, snap rpcengine.Corroboration, tag string) (strictHeadRound, error) {
+func (e *StrictHeadEstablishment) establish(ctx context.Context, members []*pool.Source, snap rpcengine.Corroboration, tag string, purpose rpcengine.ReferencePurpose) (strictHeadRound, error) {
 	started := time.Now()
 	policy := headAnchorPolicy{e.head}
 	if members == nil {
@@ -143,13 +143,28 @@ func (e *StrictHeadEstablishment) establish(ctx context.Context, members []*pool
 	verdicts := outcome.Verdicts
 	decision.Participants = participants
 	decision = attachRoundFaults(decision, collectErr)
-	e.record(started, decision, resolveErr, emissions, verdicts)
 	reference := evidenceFromDecision(decision, tag)
 	if resolveErr != nil {
+		e.record(started, decision, resolveErr, emissions, verdicts)
 		return strictHeadRound{reference: reference, emissions: emissions, collectErr: collectErr}, resolveErr
 	}
 	hash, height, err := blockRefFromDecision(decision)
-	reference.Hash, reference.Height = hash, height
+	if err == nil {
+		candidate := reference
+		candidate.Hash, candidate.Height = hash, height
+		refs := make([]rpc.SourceRef, len(members))
+		for i, member := range members {
+			refs[i] = aggregator.SourceRefOf(member)
+		}
+		err = rpcengine.ValidateReferenceEvidence(purpose, rpcengine.FreezeBasis(refs, snap), tag, candidate)
+		if err == nil {
+			reference = candidate
+		} else if errors.Is(err, rpc.ErrGuaranteeNotMet) {
+			decision.Adjudication.Reason = rpc.ReasonGuaranteeNotMet
+			reference.Adjudication.Reason = rpc.ReasonGuaranteeNotMet
+		}
+	}
+	e.record(started, decision, err, emissions, verdicts)
 	return strictHeadRound{reference: reference, emissions: emissions, collectErr: collectErr}, err
 }
 

@@ -22,7 +22,7 @@ type subscriptionUnarySource interface {
 	CallContext(context.Context, string, ...any) (json.RawMessage, error)
 }
 
-// snapshotSources admits the fixed WSS membership at the entry's membership
+// snapshotSources admits the fixed capable membership at the entry's membership
 // stage. Source health cannot change this denominator.
 func snapshotSources(load func() ([]Source, error), mode rpc.CorroborationMode) ([]Source, error) {
 	sources, err := load()
@@ -30,7 +30,7 @@ func snapshotSources(load func() ([]Source, error), mode rpc.CorroborationMode) 
 		return nil, err
 	}
 	if len(sources) == 1 && mode != rpc.CorroborationForwarded {
-		return nil, fmt.Errorf("%w: one WSS source cannot satisfy strict subscription corroboration; configure at least two WSS sources", rpc.ErrInvalidRequest)
+		return nil, fmt.Errorf("%w: one subscription-capable source cannot satisfy strict subscription corroboration; configure at least two subscription-capable sources", rpc.ErrInvalidRequest)
 	}
 	return sources, nil
 }

@@ -70,7 +70,7 @@ func (a *Aggregator) planPreparePhase(state *invocationState, started time.Time,
 	}
 	// PrepareWithReference: the rewrite reads the established evidence —
 	// never a network callback — and records the pin it introduced.
-	prepared, pin, err := plan.PrepareWithReference(req, ref, refOK)
+	prepared, pin, err := plan.PrepareWithReference(req, ref, refOK, state.invocation.Basis())
 	if err != nil {
 		return a.prepareFailureExit(state, started, req, err)
 	}

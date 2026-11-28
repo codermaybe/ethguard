@@ -1,10 +1,11 @@
 # WSS Wire Contract（自有 WebSocket 底层契约）
 
-状态：2026-11-23 NewHead接入有界通知资源合同；2026-11-21 unary两层响应出口已实施；现有 wire 范围起于 2026-11-03。自有实现的握手、帧、连接与
+状态：2026-11-28共享双工状态机归入streamrpc，物理写精确报告进度并支持即时取消；通知信封校验归入rpcwire、连接终止原因由首次关闭者持有；2026-11-23 NewHead接入有界通知资源合同；2026-11-21 unary两层响应出口已实施；现有 wire 范围起于 2026-11-03。自有实现的握手、帧、连接与
 adapter 文件已存在；本文不再保留完成阶段的逐提交计划，也不据此宣称所有验收门
 或依赖清理均已完成。
 
-本文件拥有 WSS wire、连接生命周期和实现范围；JSON-RPC 语义由
+本文件拥有 WSS wire、物理连接生命周期和实现范围；共享双工状态机由
+`internal/transport/streamrpc` 实现，合同归 [transport-contract.md](transport-contract.md)。JSON-RPC 语义由
 `internal/rpcwire` 独占。订阅聚合由 [subscription-contract.md](subscription-contract.md)
 拥有；真实 provider 的 dated observations 与未观察项由
 [wss-provider-evidence.md](wss-provider-evidence.md) 拥有，不能反向扩大兼容性承诺。
@@ -20,9 +21,9 @@ adapter 文件已存在；本文不再保留完成阶段的逐提交计划，也
 - **响应事实归属。** unary Port使用`Call(...) rpc.Response`，保留Exchange及Answer；
   RPC信封仍由rpcwire解释，方法准入及quorum仍由上层负责。中立关闭和大小上限哨兵保持。
   只有关联到当前请求的完整消息才能形成该请求的回答；未知ID和通知不能冒充它。
-  取消时保留已经关联的回答，最终错误仍由context决定；它不取消其他调用或污染socket。
+  取消时保留已经关联的回答，最终错误仍由context决定；等待响应或发送前取消不影响其他调用，实际写中故障按下文终止连接。
 - **依赖规则。** 自有生产 wire 层只依赖 Go 标准库与项目内部包
-  （`internal/rpcwire`、`internal/limits`、`internal/transport`、`rpc`），
+  （直接依赖 `internal/limits`、`internal/transport`、`internal/transport/streamrpc`），
   不得导入或链接第三方 WebSocket 库。`dependencies_test.go` 约束 WSS 包的
   import/link 边界，`gorilla_interop_test.go` 只作为测试 peer。默认构建不链接
   `ethclient` 的既有架构门不变。**范围区别**：`go.mod` 仍列有 gorilla，
@@ -36,7 +37,8 @@ adapter 文件已存在；本文不再保留完成阶段的逐提交计划，也
 | 握手 | `websocket_handshake.go` | HTTP Upgrade、ws/wss 拨号、TLS、101 校验、Sec-WebSocket-Accept、deadline/取消 |
 | 帧编解码 | `websocket_frame.go` | 帧头、mask、opcode/RSV、fragmentation、UTF-8、close code、双重限制 |
 | 连接与生命周期 | `websocket_connection.go` | 单 reader、控制帧自处理、写串行化、read limit 分类、关闭语义 |
-| adapter 绑定 | `wss.go` | `transport.Dialer`/`Transport` 表面、pending demux、presence 透传 |
+| adapter 绑定 | `wss.go` | 拨号与 shared streamrpc 薄装配；无独立 RPC 状态 |
+| 共享双工核 | `../streamrpc/{transport,notification,subscription}.go` | pending demux、通知预算／租约、setup 清理、graceful／abort |
 
 分层保持独立；不以阶段编号、migration 文件或临时并行 wire 栈代替职责划分。
 
@@ -92,12 +94,17 @@ adapter 文件已存在；本文不再保留完成阶段的逐提交计划，也
   帧、写失败终止连接、读失败/read limit 失败全部 pending、Close 拒绝新调用
   但不取消在途 unary 调用、旧响应不交付新调用、不自动重放。`Close()` 本身
   不等待在途调用返回；socket 在最后一个 pending 完成/取消后释放，读写故障
-  仍可立即 abort（`wss.go` 的 `Close`、`finishCloseAfterPending`、`abort`）。
+  仍可立即 abort（`streamrpc.Transport` 的 `Close`、`drainCloseIfSettled`、`abort`）。
+- 物理 `Conn.WriteMessage` 精确报告任何已写字节；header 已写而 payload 失败仍为部分写。短写无 error 转为 `io.ErrShortWrite`，不重放。控制帧与业务写使用同一物理写锁；无 deadline 的 context 取消也能立即打断实际写，取消回调在释放锁前收束。发送前零写取消保持健康，物理错误保守终止，详见 Transport 共享双工合同。
+- 首次在锁内将连接置为closed的终止流程拥有失败分发权。abort关闭socket触发的
+  后续读错误不得再次接管分发，不能使pending与通知流观察到不同的终止原因。
+  只有closing、尚有pending的优雅Close仍允许真实读写故障abort；主动Unsubscribe
+  继续按通知合同覆盖排空并释放未读事件。
 - Close 清空未绑定订阅的 notification 缓存及淘汰顺序；进入 closing 或 closed 后，
   reader 不再缓存或分发 notification。在途 unary 响应仍正常交付，最后一个调用
   完成或取消后才释放 socket；不得因等待在途响应而重建 notification 缓存。
 - read limit 超限的 pending 失败同时保留 `transport.ErrBodyTooLarge` 与
-  `transport.ErrConnectionClosed` 两个哨兵（现 `classifyReadError` 语义）。
+  `transport.ErrConnectionClosed` 两个哨兵（物理 Conn 分类，共享核保持错误链）。
 - ChainID admission 失败后坏连接被丢弃、下一次独立调用才允许惰性重拨：
   pool 侧语义不变，adapter 只负责让失败可分类。
 - health、basis、fault 与 write outcome 语义不变；WSS 与 HTTP 的错误解释
@@ -118,6 +125,31 @@ Subscribe 的调用 context 只约束建立；直接 OpenNotificationStream 的 
 建立取消按实际请求写入及已关联回答清理：请求未写出（包括等待写锁时取消）只结束本次建立；已经得到合法RPC拒绝也不关闭共享连接；已关联合法订阅ID时定向发送eth_unsubscribe。请求已完整写出但取消时尚无可用ID，连接必须终止，以释放可能已在服务端建立的未知订阅；该错误同时保留取消与ErrConnectionClosed，其他共享调用也会观察到断连。ExchangeStarted不保证请求帧已写出，因此这一清理判断使用传输内部写入完成事实，不改变公开Response语义。绑定前预算失败但ID已知，同样先本地清理再尽力退订服务端ID。
 
 握手拒绝不等待响应正文读完：拒绝连接先关闭socket，再关闭HTTP响应体。升级成功的连接交接先停止握手context的取消回调并清除期限；取消已抢先接管socket时返回取消错误，不交付已关闭的连接。帧写失败保留原始写错误及ErrConnectionClosed，并使其他pending与订阅观察到相同原因。
+
+### 2.5 通知信封与失败范围
+
+`rpcwire.DecodeSubscriptionNotification`独占`eth_subscription`通知的协议解释；
+共享核只将校验后的结果与完整消息交给通知分发，WSS不另行解释业务result。
+
+- 输入必须为一个完整JSON对象；不接受batch、尾随值或残缺JSON。
+  `jsonrpc`必须是解码后值为`2.0`的字符串，等价转义`"2.\u0030"`可接受；
+  缺失、null及非字符串版本拒绝。重复版本字段按最后一个原始值检查，
+  前一个合法版本不能掩盖最后的null或错误版本。
+- 通知没有`id`，`method`为`eth_subscription`；`params`提供非空字符串
+  `subscription`及存在的`result`。`result: null`是存在的结果，其业务有效性归
+  上层消费者。未知成员和既有`encoding/json`成员匹配行为不新增独立拒绝策略。
+- 失败统一包装`rpcwire.ErrMalformedNotification`，不具备provider错误的
+  `ProtocolError`、`DataError`或`ErrorDataPresence`能力。WSS结束该连接当时已注册
+  的所有通知流（含建立中），
+  先按FIFO交付已准入的事件，再交付终态；无效通知不占队列或租约预算。
+  已交付事件仍由接收方Release。建立失败按2.4节的活跃setup规则清理pre-bind
+  缓存；已知服务端ID经既有Subscribe清理路径尽力发送eth_unsubscribe。
+- 通知校验失败本身不abort物理连接或失败普通RPC；已有及后续unary调用继续按
+  各自响应完成。2.4节的建立取消和I/O失败终止规则仍适用。reader仍先按ID
+  分流：已关联响应交给响应codec，未知ID忽略；此规则
+  不因通知codec拒绝携带ID而改变。
+- `Raw`保留完整消息字节，`Result`独立于输入帧持有自己的字节；后续读或释放
+  输入帧不得覆盖结果。两者的预算和Release合同见2.4节。
 
 ## 3. 明确不实现
 
@@ -140,23 +172,24 @@ Subscribe 的调用 context 只约束建立；直接 OpenNotificationStream 的 
 | Upgrade、TLS、非 101、坏头、超时/取消、重定向/未协商扩展拒绝 | `websocket_handshake_test.go`、`websocket_handshake_ipv6_test.go` |
 | RFC6455、malformed、长度/UTF-8/read limit、分片 | `websocket_frame_test.go`、`websocket_frame_fuzz_test.go` |
 | 单 reader、控制帧、写串行化与连接失败 | `websocket_connection_test.go`、`write_wedge_test.go` |
-| pending demux、取消、Close、不重放、presence 与通知隔离 | `wss_contract_test.go`、`lifecycle_test.go`、`notification_test.go`、`notification_pending_test.go` |
-| 通知字节/条数上限、pre-bind总额、租约交接、生产失败后主动释放 | `notification_budget_test.go`、`notification_pending_test.go`；2026-11-23相关与全仓race通过 |
+| pending demux、取消、Close、不重放、presence 与通知隔离 | `../streamrpc/{call_contract,lifecycle,message_conn_contract}_test.go`；WSS `wss_contract_test.go`、`lifecycle_test.go`、`notification_test.go` 保留真实连接验证 |
+| 通知版本/形状/presence、原文所有权、FIFO终态、unary隔离、建立失败清理 | `internal/rpcwire/notification_test.go`、`../streamrpc/notification_protocol_test.go` |
+| 通知字节/条数上限、pre-bind总额、租约交接、生产失败后主动释放 | `../streamrpc/notification_budget_test.go`、`../streamrpc/notification_pending_test.go`；历史验收不替代各次变更检查 |
 | 外部实现互操作 | `gorilla_interop_test.go`；测试 peer 不能充当真实 provider 证据 |
 
 ## 5. 不变量清单
 
-1. 协议错误实现 `rpc.ProtocolError`、`rpc.DataError`、`rpc.ErrorDataPresence`，
+1. provider JSON-RPC错误响应实现 `rpc.ProtocolError`、`rpc.DataError`、`rpc.ErrorDataPresence`，
    data 原始字节逐字保留（missing/null/value；`0x` 仍是 present value）。
 2. malformed JSON-RPC 响应只失败该调用，帧边界完整时连接继续可用；wire
    协议错误或 read limit 则终止连接，不混同两类失败。
-3. 取消/超时不损坏健康连接；写路径 invocation 失败不重试、不重放。
+3. 响应等待或发送前取消不损坏健康连接；实际写中错误保守终止。写路径 invocation 失败不重试、不重放。
 4. 连接终止后新调用得到 `wss.ErrTransportClosed`；其与中立关闭哨兵的关系
    保持既有 adapter 契约。
-5. 不新增第二套 adapter registry；`config.TransportWSS` 的显式组合根 dispatch
-   不变。pool 下一次独立调用的惰性重拨与根订阅 session 重建各自有 owner，
+5. 不新增第二套 adapter registry；端点推导 `config.TransportWSS` 后由组合根装配，
+   显式 transport 必须与 endpoint 一致。pool 下一次独立调用的惰性重拨与根订阅 session 重建各自有 owner，
    都不是 transport 自动 replay。
 
 ## 6. 待后续实现阶段评估
 
-写阶段取消原因与部分写入后的 abort、TCP／TLS／Upgrade 的共同握手预算、Subscribe setup deadline 所有权、畸形通知的连接级影响与 ReceivedAt 的接收／交付含义，以及 direct dial／proxy 范围仍需逐项设计。旧探针没有在本轮重跑，不能直接登记为已复现缺陷。source session 重建、逻辑snapshot与最终错误由订阅owner负责，wire不据此增加自动replay。
+TCP／TLS／Upgrade 的共同握手预算、Subscribe setup deadline 所有权、ReceivedAt 的接收／交付含义，以及 direct dial／proxy 范围仍需逐项设计。这些事项的旧探针没有在本轮重跑，不能直接登记为已复现缺陷；畸形通知的失败范围已在2.5节固定并有真实连接回归。source session 重建、逻辑snapshot与最终错误由订阅owner负责，wire不据此增加自动replay。

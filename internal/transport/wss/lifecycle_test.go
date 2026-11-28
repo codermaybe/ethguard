@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/codermaybe/ethguard/internal/rpcwire"
 	"github.com/codermaybe/ethguard/internal/transport"
+	"github.com/codermaybe/ethguard/internal/transport/streamrpc"
 )
 
 func requestMethod(frame []byte) string {
@@ -67,108 +67,6 @@ func TestDialContextCancellationKeepsEstablishedConnection(t *testing.T) {
 	}
 }
 
-func TestCancellationClearsPendingAndKeepsTheConnection(t *testing.T) {
-	received := make(chan struct{})
-	release := make(chan struct{})
-	peerURL := newScriptedPeer(t, func(peer *scriptedPeer) {
-		first := <-peer.requests
-		close(received)
-		<-release
-		peer.respond(first, `"late"`)
-		peer.respond(<-peer.requests, `"ok"`)
-	})
-	tr := dialTestTransport(t, peerURL, 0)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	result := make(chan error, 1)
-	go func() { var value string; result <- tr.Call(ctx, "eth_cancel").Decode(&value) }()
-	awaitLifecycleSignal(t, received)
-	cancel()
-	if err := lifecycleResult(t, result); !errors.Is(err, context.Canceled) {
-		t.Fatalf("cancel: %v", err)
-	}
-	if got := tr.pendingCount(); got != 0 {
-		t.Fatalf("pending after cancel = %d", got)
-	}
-	close(release)
-	followCtx, followCancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer followCancel()
-	var value string
-	if err := tr.Call(followCtx, "eth_followup").Decode(&value); err != nil || value != "ok" {
-		t.Fatalf("late response leaked or socket closed: value=%q err=%v", value, err)
-	}
-}
-
-func TestCancellationWaitingForWriterDoesNotSendOrAbort(t *testing.T) {
-	peerURL := newScriptedPeer(t, func(peer *scriptedPeer) {
-		request := <-peer.requests
-		if method := requestMethod(request); method != "eth_followup" {
-			t.Errorf("canceled writer emitted %q", method)
-		}
-		peer.respond(request, `"ok"`)
-	})
-	tr := dialTestTransport(t, peerURL, 0)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	// The write lock is the capacity-1 channel semaphore now; holding it
-	// from the test goroutine parks the queued call on the lock exactly as
-	// the old mutex did.
-	releaseWriter := tr.ws.writeControlLock()
-	result := make(chan error, 1)
-	go func() { var value string; result <- tr.Call(ctx, "eth_queued").Decode(&value) }()
-	// The pending entry is installed before waiting on the single-writer lock.
-	deadline := time.NewTimer(3 * time.Second)
-	ticker := time.NewTicker(time.Millisecond)
-	defer deadline.Stop()
-	defer ticker.Stop()
-	for tr.pendingCount() != 1 {
-		select {
-		case <-ticker.C:
-		case <-deadline.C:
-			releaseWriter()
-			t.Fatal("writer did not enter pending table")
-		}
-	}
-	cancel()
-	releaseWriter()
-	if err := lifecycleResult(t, result); !errors.Is(err, context.Canceled) {
-		t.Fatalf("queued cancel: %v", err)
-	}
-	followCtx, followCancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer followCancel()
-	var value string
-	if err := tr.Call(followCtx, "eth_followup").Decode(&value); err != nil || value != "ok" {
-		t.Fatalf("healthy socket poisoned: %q %v", value, err)
-	}
-}
-
-func TestReadFailureAbortsEveryPendingCall(t *testing.T) {
-	peerURL := newScriptedPeer(t, func(peer *scriptedPeer) {
-		<-peer.requests
-		<-peer.requests
-		_ = peer.conn.Close()
-	})
-	tr := dialTestTransport(t, peerURL, 0)
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-	result := make(chan error, 2)
-	for range 2 {
-		go func() { var value string; result <- tr.Call(ctx, "eth_pending").Decode(&value) }()
-	}
-	for range 2 {
-		if err := lifecycleResult(t, result); !errors.Is(err, transport.ErrConnectionClosed) {
-			t.Fatalf("pending: %v", err)
-		}
-	}
-	if tr.pendingCount() != 0 {
-		t.Fatal("abort left pending calls")
-	}
-	var value string
-	if err := tr.Call(ctx, "eth_after").Decode(&value); !errors.Is(err, ErrTransportClosed) {
-		t.Fatalf("dead socket reused: %v", err)
-	}
-}
-
 func TestReadLimitFailsPendingCallsAndClosesTheTransport(t *testing.T) {
 	peerURL := newScriptedPeer(t, func(peer *scriptedPeer) {
 		request := <-peer.requests
@@ -180,9 +78,6 @@ func TestReadLimitFailsPendingCallsAndClosesTheTransport(t *testing.T) {
 	var value string
 	if err := tr.Call(ctx, "eth_large").Decode(&value); !errors.Is(err, transport.ErrBodyTooLarge) {
 		t.Fatalf("limit: %v", err)
-	}
-	if tr.pendingCount() != 0 {
-		t.Fatal("read limit left pending calls")
 	}
 	if err := tr.Call(ctx, "eth_after").Decode(&value); !errors.Is(err, ErrTransportClosed) {
 		t.Fatalf("read-limited socket reused: %v", err)
@@ -220,10 +115,9 @@ func TestFrameWriteFailureAbortsOtherPendingCalls(t *testing.T) {
 	result.conn = network
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	tr := &Transport{ws: newConn(result, DefaultReadLimit), ids: rpcwire.NewIDGen(), limit: DefaultReadLimit, pending: make(map[string]chan frameResult)}
+	tr := &Transport{Transport: streamrpc.New(newConn(result, DefaultReadLimit), streamrpc.Options{})}
 	t.Cleanup(tr.Close)
-	go tr.readLoop()
-	stream, err := tr.openNotificationStreamWithID(ctx, "source", 1, 1, "sub-1")
+	stream, err := tr.OpenNotificationStream(ctx, "source", 1, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -243,63 +137,5 @@ func TestFrameWriteFailureAbortsOtherPendingCalls(t *testing.T) {
 	}
 	if err := tr.Call(ctx, "eth_after").Decode(&value); !errors.Is(err, ErrTransportClosed) {
 		t.Fatalf("failed writer reused: %v", err)
-	}
-}
-
-func TestCloseDrainsPendingWithoutAcceptingNewCalls(t *testing.T) {
-	for _, cancelPending := range []bool{false, true} {
-		t.Run(map[bool]string{false: "response", true: "cancel"}[cancelPending], func(t *testing.T) {
-			received := make(chan struct{})
-			release := make(chan struct{})
-			peerDone := make(chan struct{})
-			peerURL := newScriptedPeer(t, func(peer *scriptedPeer) {
-				defer close(peerDone)
-				request := <-peer.requests
-				close(received)
-				<-release
-				if !cancelPending {
-					peer.respond(request, `"drained"`)
-				}
-				for range peer.requests {
-				}
-			})
-			tr := dialTestTransport(t, peerURL, 0)
-			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-			defer cancel()
-			result := make(chan error, 1)
-			go func() {
-				var value string
-				err := tr.Call(ctx, "eth_pending").Decode(&value)
-				if err == nil && value != "drained" {
-					err = errors.New("pending response changed")
-				}
-				result <- err
-			}()
-			awaitLifecycleSignal(t, received)
-			tr.Close()
-			tr.Close()
-			var ignored string
-			if err := tr.Call(ctx, "eth_new").Decode(&ignored); !errors.Is(err, ErrTransportClosed) {
-				t.Fatalf("Close accepted new call: %v", err)
-			}
-			if tr.pendingCount() != 1 {
-				t.Fatal("Close aborted existing pending")
-			}
-			if cancelPending {
-				cancel()
-			}
-			close(release)
-			err := lifecycleResult(t, result)
-			if cancelPending && !errors.Is(err, context.Canceled) {
-				t.Fatalf("pending cancellation: %v", err)
-			}
-			if !cancelPending && err != nil {
-				t.Fatalf("Close discarded response: %v", err)
-			}
-			awaitLifecycleSignal(t, peerDone)
-			if tr.pendingCount() != 0 {
-				t.Fatal("Close left pending calls")
-			}
-		})
 	}
 }

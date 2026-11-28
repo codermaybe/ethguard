@@ -1,6 +1,6 @@
 # 订阅合同
 
-状态：2026-11-25。NewHead 使用单订阅 Tip+DAG、连续路径与审计模型；Logs与Receipts完整连续流及跨入口生命周期收敛已完成本地验收，全仓质量治理随后执行。本文描述公开保证与限制，WSS 字节和连接生命周期见 [WSS wire 合同](wss-wire-contract.md)，真实 provider 证据见 [WSS 观察记录](wss-provider-evidence.md)。
+状态：2026-11-28。NewHead 使用单订阅 Tip+DAG、连续路径与审计模型；Logs 与 Receipts 保留原生连续流。S6 默认策略、显式预算移交、独立终态观察及外围 channel 桥已通过本地验收与最终全仓普通／race。Windows 真实 pipe 运行门禁仍待 CI。WSS 字节和连接生命周期见 [WSS wire 合同](wss-wire-contract.md)，真实 provider 证据见 [WSS 观察记录](wss-provider-evidence.md)。
 
 ## 1. 公开接口与来源
 
@@ -15,9 +15,9 @@ SubscribeNewHead(context.Context, HeadSubscriptionPolicy) (*HeadSubscription, er
 
 不保留旧 NewHead channel、RoundTimeout、PathBytes、逐高度 gap 错误或 V2 出口。Open 冻结成员、校验策略并预留控制空间；首次网络建流和初始锚点建立属于流内阶段。建立 context 在返回前检查，返回后的订阅生命周期由 Client owner、订阅 Close 和 Next context 控制。当前从现场观察建立初始锚点，不提供历史起点、持久化或跨进程恢复。
 
-成员只来自固定 WSS source snapshot。HTTP 能力不产生 push 来源，也不能借其他 endpoint 补票。strict 使用固定多数 Q，并至少要求两个成员；multi-source Client 只有一个 WSS 来源时拒绝建立。显式单源 Client 使用 Forwarded 保证，不升级为 Corroborated；没有公开独立 Selected 订阅模式。
+成员来自构造期声明支持有界订阅的固定来源快照；pool 不按 URL scheme 推断能力，当前支持 WSS 与 IPC；Unix IPC 已实测，Windows pipe 运行门禁仍待 CI。HTTP 能力不产生 push 来源，也不能借其他 endpoint 补票。strict 使用固定多数 Q，并至少要求两个成员；multi-source Client 只有一个可订阅来源时拒绝建立。单源 Client 使用 Forwarded 保证，不升级为 Corroborated；没有公开独立 Selected 订阅模式。
 
-Client关闭后，root/view的三个订阅入口均在网络前返回ErrPoolClosed，不创建流句柄。非法查询/策略保留各入口既有的检查顺序；HTTP-only及strict仅一个WSS的能力拒绝也在本地完成。
+Client关闭后，root/view的三个订阅入口均在网络前返回ErrPoolClosed，不创建流句柄。非法查询/策略保留各入口既有的检查顺序；HTTP-only及strict仅一个可订阅来源的能力拒绝也在本地完成。
 
 Basis 返回方法域、固定成员、Q 和证据等级的副本。DomainID 以 newHeads/<进程内递增 ID> 区分本进程的订阅实例，不是跨进程或重启后的全局唯一 ID。不同订阅有独立账本、版本、缓存、预算和终态。
 
@@ -43,7 +43,9 @@ SubscribeTransactionReceipts(context.Context, *ethapi.TransactionReceiptsQuery, 
 (*ReceiptsSubscription).Close() error
 ~~~
 
-不保留收据channel或ethereum.Subscription桥接。Basis表示私有Head的固定路径成员和Q；每块收据的字段支持另由ReceiptSupport表达。CommittedTip是内容完整且已原子入队的位置，不是业务Ack。范围、字段和资源合同见第8节，实际验收状态见第9节。
+原生入口保持 Next 连续流；外围 `ethadapter` 的 geth channel 桥另见[兼容政策](go-ethereum-compatibility-policy.md)。Basis 表示私有 Head 的固定路径成员和 Q；每块收据的字段支持另由 ReceiptSupport 表达。CommittedTip 是内容完整且已原子入队的位置，不是业务 Ack。范围、字段和资源合同见第 8 节，实际验收状态见第 9 节。
+
+三类原生流还提供 `Terminated() <-chan struct{}`、`TerminalError() error` 和 `NextWithBudget(ctx, destination)`。前两项观察 producer 终态；后一项供需要独立内存账本的消费者原子接收完整事件，并返回幂等 release。普通调用方继续使用 Next 即可，geth 调用方由适配器自动使用这些边界。
 
 ## 2. NewHead 的支持与连续路径
 
@@ -106,6 +108,17 @@ HeadSubscriptionPolicy 不设隐含业务期限。以下资源值必须显式为
 
 关系必须满足 MaxMessageBytes ≤ WireBytes ≤ MemoryBytes。多个来源的通知共享该订阅的 MemoryBytes；WireBytes 不是每源额外增加的一份总预算。最大通知能通过尺寸检查，不表示剩余预算一定能容纳它的解码与保留材料。
 
+`DefaultHeadSubscriptionPolicy()`、`DefaultLogsSubscriptionPolicy()` 与 `DefaultReceiptsSubscriptionPolicy()` 返回可检查、可修改的结构体值，统一数值由 `internal/subscription/defaults.go` 拥有。手工构造全零 policy 仍本地拒绝。适配器直接使用这组预设，不再要求 geth 调用方填写预算。
+
+| 预设 | 固定默认值 |
+| --- | --- |
+| Head | MemoryBytes 32 MiB；RetainedNodes 128；MaxConcurrentRequests 4；WireMessages 64；WireBytes 1 MiB；MaxMessageBytes 64 KiB |
+| Logs 内容 | MemoryBytes 1 GiB；MaxResponseBytes 1 MiB；MaxConcurrentRequests 2；Head 使用上述预设 |
+| Receipts 内容 | MemoryBytes 2 GiB；MaxResponseBytes 1 MiB；MaxConcurrentRequests 2；Head 使用上述预设 |
+| 时间 | RequestTimeout 10 s；RecoveryTimeout 2 min；RetryDelay 250 ms；Head AuditTimeout 2 min |
+
+这些值是所有权准入额度，不是启动时预分配的 heap，也不是 RSS 上限。内容工作区沿用 `256 * MaxResponseBytes + 16384`，两个并发槽合计略高于 512 MiB；Receipts 胜出对象另按既有 64 倍规范字节记账。TTL、Gate 和 MaxRecoveryAttempts 没有新增隐含值；预设不提供 finality 或新的 F1 新鲜度保证。超出单条响应、积压或总额度时仍显式失败；更大负载可通过原生 policy 表达。默认值的负载验收独立记录于第 9 节。
+
 RequestTimeout、RecoveryTimeout、AuditTimeout、TipTTL 和 MaxRecoveryAttempts 的零值分别关闭对应期限、TTL 或尝试限制；RetryDelay=0 表示不自动重试。负时长和矛盾上下界本地拒绝。未配置期限时不承诺有限时间恢复或审计可见，有限内存仍可能显式终止流。
 
 TipTTL 管理当前支持的新鲜度，不证明历史安全，也不因对象恢复而刷新。RecoveryTimeout 和尝试量在同一未完成恢复期间累计，不能靠新通知或目标抖动重置；新推送不能绕过 RetryDelay。
@@ -130,11 +143,17 @@ Audit.First/Last 定义交付范围，通过 All() 逐条读取。不要把直�
 | 终态已返回后的 Next | ErrHeadTerminalReturned |
 | HeadSubscription.Close | 丢弃未消费队列，取消并等待自身任务退出 |
 | Next(ctx) 取消 | 主动取消该订阅、丢弃队列并等待退出 |
-| Client / view Close | 触发订阅主动丢弃与异步清理；其返回不保证每个 Head 已退出，需要屏障时调用 Head.Close |
+| Client / view Close | 取消 owner、关闭 pool，并等待通过 AttachSubscription 登记的交付；直接创建的原生流仍须调用自身 Close 取得完成屏障 |
 
 主动关闭可覆盖生产端失败后的排空状态。即使生产任务已经结束，owner 随后关闭仍会清理未消费队列。Next 串行化消费者；业务上应由一个消费循环按序处理。
 
-工作停止和交付结束分别管理。全部来源已耗尽重试机会时，FIFO之后的终态不等待慢退订；Head.Close仍等待来源退订、在途请求、估算回调及独立owner watcher真正退出。Logs/Receipts.Close同样等待各自内容任务、私有Head和owner watcher。Client.Close只取消owner并等待Pool自身关闭义务，不扩张为所有订阅的完成屏障。
+工作停止和交付结束分别管理。全部来源已耗尽重试机会时，FIFO 之后的终态不等待慢退订；Head.Close 仍等待来源退订、在途请求、估算回调及独立 owner watcher 真正退出。Logs/Receipts.Close 同样等待各自内容任务、私有 Head 和 owner watcher。
+
+`Terminated` 在 producer 确立终态时关闭，独立于未读 FIFO、网络清理和 Next 消费。信号关闭后 `TerminalError` 原因稳定；主动取消为 nil，已有真实故障不会被随后 Close 覆写。该观察只保留原因，不持有带审计所有权的终态包装。完整终态审计仍由 Next 按 FIFO 交付；显式 Close 可丢弃它。
+
+外围交付通过 `Client.AttachSubscription` 在建立前登记 `Stop`／`Done`：Stop 幂等且非阻塞；Done 仅在原生 Close、交付任务退出及 Err 关闭后关闭。Client.Close 先封闭登记并停止全部已登记项，再关闭 pool、等待全部 Done；并发 Close 共享同一个完成屏障。登记锁不覆盖 Stop、网络清理或等待。提前 detach 不生效，不能让未完成交付逃离屏障。此边界由 ethadapter 自动使用，原生流不因此隐式登记。
+
+`NextWithBudget` 在释放源账本前调用目标 `SubscriptionMemoryBudget.Reserve`，成功后由接收方持有 release，租约可以跨越原生 Close。Reserve 必须非阻塞且不重入订阅，调用时不持原生主控制锁；Close 会等待正在移交的读取退出。目标拒绝时 payload 留在原生 FIFO；Head 的失败审计以返回的 release 单独交付，Logs/Receipts 保留完整事件及审计待重试。消费者对成功或失败返回的 release 均负责最终释放。
 
 来源会话在同一Head控制锁内检查停止、Open和Bind；停止之后不再准入新会话。已经准入的Subscribe可以在取消后迟到返回，其inner仍由原来源任务唯一退订，不再读取该迟到流。会话先退休，再撤票，网络清理在锁外；已取消但未返回的实际请求继续占并发槽。外部实现若忽略取消或阻塞退订，所属订阅的Close也会继续等待。
 
@@ -146,7 +165,7 @@ Audit.First/Last 定义交付范围，通过 All() 逐条读取。不要把直�
 
 MemoryBytes 是保守的分配与所有权账本，不是 Go heap 或进程 RSS 的硬隔离。解码先为 JSON 结构、规范化、hash 校验等申请工作区，费用大于原文；需要按来源数量、最大通知、并发恢复和消费速度留出余量。已交付且由调用方保存的对象由调用方负责。库不改变全局 GC 参数，不靠反复强制 GC 实现回收。
 
-WSS 连接 ReadLimit 及绑定前未知 ID 缓存有独立连接上限，不能冒称已计入某个 Head 的总预算。按 hash 取数的传输原文与解析也受相应 transport 上限约束，完整设备预算必须考虑连接及并发在途数据。具体字节归属见 WSS wire 合同。
+WSS／IPC 连接 ReadLimit 及共享双工核绑定前未知 ID 缓存有独立连接上限，不能冒称已计入某个 Head 的总预算。按 hash 取数的传输原文与解析也受相应 transport 上限约束，完整设备预算必须考虑连接及并发在途数据。具体字节归属见 WSS wire 合同。
 
 有限内存下，过慢消费、必要审计持续积压或过深恢复可能明确终止。有限缓存可以恢复深重组，但不能同时承诺任意深度、历史对象永远可得和始终成功。
 
@@ -213,13 +232,30 @@ pool.Source.Call保留真实Response，CallContext仅投影，不从raw/error重
 
 每次delta全部成功才原子入队并推进版本。生产失败先排空已提交FIFO，再一次返回ReceiptsTerminalError，包含Cause、最后内容提交位置/版本和剩余Head/ContentAudit；终态冻结时记录未退出任务，慢清理不延迟错误可见。主动Close、Next取消及owner关闭丢弃未消费交付；Close等待实际工作、方法资源清理和独立owner watcher。生产工作结束与交付排空是不同事实，producer结束后owner取消仍能释放未消费材料。
 
-旧channel桥接、事件Aggregator、同源Pull探测和生命期累计票据预算已从工作区删除；Head的Mode、SessionGate、队列和滚动所有权预算保留。跨入口生命周期收敛已验收，诊断及真实provider观察仍独立待办；没有共享Hub、跨订阅single-flight、WAL/Ack/Replay、历史补播或finality保证。
+旧核心 channel 桥接、事件 Aggregator、同源 Pull 探测和生命期累计票据预算已删除；外围 ethadapter 通过公开原生流消费事件，不恢复旧 owner。Head 的 Mode、SessionGate、队列和滚动所有权预算保留。跨入口生命周期收敛已验收，诊断及真实 provider 观察仍独立待办；没有共享 Hub、跨订阅 single-flight、WAL/Ack/Replay、历史补播或 finality 保证。
 
 ## 9. 验证与实现入口
 
-internal/subscription 是 Head/Logs/Receipts 唯一 owner，拥有状态机、worker、队列、session、恢复、内容证明与交付。它通过注入能力编排，不拥有连接实现；Source 接口与固定成员快照回调由 root 的 Client 生命周期适配提供，允许消费中立 transport port，禁止依赖 pool/runtime/methods/具体 transport。root 仅保留公开入口和稳定类型 alias，view 复用同一执行。私有 contentSubscription[E] 为 Logs/Receipts 共用 typed FIFO、版本提交、预算、实际任务、审计及 Close 完成屏障；具体流各自拥有过滤、证明与重试，receipts 共用 internal/rpcengine 的规范值裁决。共享 FilterQuery 冻结与拼写兼容属于 ethobject/log；unary 保留未知扩展和精确数值，stream 编译时拒绝未知扩展。白盒测试随 owner 移动，公开客户端验收留 root/verification。WSS notification 的缓存与租约由 internal/transport/wss 拥有，注入来源透传中立有界订阅能力并保留真实 Response。
+internal/subscription 是 Head/Logs/Receipts 唯一 owner，拥有状态机、worker、队列、session、恢复、内容证明与交付。它通过注入能力编排，不拥有连接实现；Source 接口与固定成员快照回调由 root 的 Client 生命周期适配提供，允许消费中立 transport port，禁止依赖 pool/runtime/methods/具体 transport。root 保留公开入口、稳定类型 alias、默认策略构造及外围交付生命周期登记，view 复用同一执行。私有 contentSubscription[E] 为 Logs/Receipts 共用 typed FIFO、版本提交、预算、实际任务、审计及 Close 完成屏障；具体流各自拥有过滤、证明与重试，receipts 共用 internal/rpcengine 的规范值裁决。共享 FilterQuery 冻结与拼写兼容属于 ethobject/log；unary 保留未知扩展和精确数值，stream 编译时拒绝未知扩展。白盒测试随 owner 移动，公开客户端验收留 root/verification。双工 notification 的缓存与租约由 internal/transport/streamrpc 拥有，注入来源透传中立有界订阅能力并保留真实 Response。
 
 反例覆盖共同祖先支持、迟到合票、会话撤票、完整 gap/reorg、证人替换、未知跳高与恢复活性、发布原子性、审计前缀/期限、慢消费者、长期保留、图缩容、并发关闭和 WSS pre-bind/原文释放。合成对象测试、完整 Header、真实本地 WSS peer、Anvil 和真实 provider 是不同证据层；本轮没有新增 Anvil 或 provider 采集。
+
+### 2026-11-28 默认预算与外围桥本地验收
+
+`internal/subscription/defaults_test.go` 直接消费默认策略：每块 240 笔签名交易、720 条日志，calldata 为 32／128／512 B，日志 data 为 32／128／256 B、topics 为 1–3 项。代表块 JSON 262,566 B，完整收据及规范胜出值 772,413 B。高度 100→120 连续消费后，一次交付 20 块撤回及 20 块追加，再继续至 121；Logs 使用两源，Receipts 使用三源。测试包含完整交易／收据 trie 承诺，未手调策略、未减小既有 256／64 倍记账系数。
+
+| 测量 | Logs | Receipts |
+| --- | ---: | ---: |
+| 实际同时执行的内容调用／持有请求 | 2／2 | 2／2 |
+| 内容预算抽样最高值（B） | 550,415,399 | 1,592,123,372 |
+| 私有 Head 预算抽样最高值（B） | 48,762 | 57,318 |
+| Close 后内容／Head 账本 | 0／0 | 0／0 |
+
+抽样发生于实际内容调用期间，明确排除 Head-only 恢复；同时断言两个解码工作区都已预留。上述数值是一次普通运行的抽样保留额度，受调度影响，不是 Go heap、RSS 或全时刻峰值。大负载普通与 race 均通过；这是合成代表性负载，不代表任意主网区块、任意来源数或全部执行客户端保证。
+
+独立 `ethadapter/subscription*_contract_test.go` 及终态白盒覆盖锁定 geth 的完整 47 项签名、bind/v2 合约 watch、三类正常推进、空日志块重组、永久未读 channel、所有关闭入口、回调 panic／修改、建流 context 生命周期，以及真实本地 WSS／Unix IPC／混合来源。桥队列满、预算交接拒绝与接收方租约跨 Close 的反例均验证释放；两槽饱和后桥字节与租约账本归零。
+
+审计先后发现并修复 streamrpc 建流失败的 typed nil 清理 panic、Head 主动关闭先暴露 ErrClosed 后发布 nil 终态的窗口，以及将读取锁持有范围扩到清理等待造成的并发 Close 回归。Head 与内容 Close 仅短暂获取读取锁，随后在锁外等待任务结束。修复后的冻结版本通过最终全仓普通／race，各 59 个测试包、10,433 个测试及子测试通过事件，另 8 包无测试，零失败、零跳过测试。完整静态／生成／平台编译门禁见[接入设计验收记录](access-plane-ipc-adapter.md#8-最终本地验收与剩余平台门禁2026-11-28)；Windows 真实 pipe 运行与新增 provider 观察仍未完成。
 
 ### 2026-11-25 生命周期本地验收
 

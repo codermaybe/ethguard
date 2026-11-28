@@ -147,7 +147,7 @@ func TestLogsHistoricalRangePreparesWithoutPendingRejection(t *testing.T) {
 	if _, needed := plan.ReferenceRequirement(req); needed {
 		t.Fatal("an explicit historical range declared a reference need")
 	}
-	prepared, _, err := plan.PrepareWithReference(req, rpc.ReferenceEvidence{}, false)
+	prepared, _, err := plan.PrepareWithReference(req, rpc.ReferenceEvidence{}, false, planTestBasis())
 	if err != nil {
 		t.Fatal(err)
 	}

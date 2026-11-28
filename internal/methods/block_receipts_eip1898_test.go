@@ -27,7 +27,7 @@ func TestBlockReceiptsMovingTagObjectAnchorsLikeTheMatrix(t *testing.T) {
 		t.Fatal("moving-tag object must declare a reference need")
 	}
 	evidence := rpc.ReferenceEvidence{Hash: testReceiptsAnchorHash, Height: 16, Status: rpc.Corroborated, Tag: "latest"}
-	prepared, pin, err := plan.PrepareWithReference(req, evidence, true)
+	prepared, pin, err := plan.PrepareWithReference(req, evidence, true, planTestBasis())
 	if err != nil {
 		t.Fatalf("corroborated latest evidence must serve the rewrite: %v", err)
 	}
@@ -88,7 +88,7 @@ func TestBlockReceiptsExplicitObjectPassesThroughWithRequireCanonical(t *testing
 		if _, needed := plan.ReferenceRequirement(req); needed {
 			t.Fatalf("%v: explicit object must not need a reference", obj)
 		}
-		prepared, _, err = plan.PrepareWithReference(req, rpc.ReferenceEvidence{}, false)
+		prepared, _, err = plan.PrepareWithReference(req, rpc.ReferenceEvidence{}, false, planTestBasis())
 		if err != nil {
 			t.Fatalf("%v: pass-through prepare failed: %v", obj, err)
 		}

@@ -5,7 +5,7 @@ package wss
 // binds a handshake result to the frame codec and exposes exactly the
 // operations the raw-call adapter needs — one bounded text write under the
 // caller's context, one message read for the reader goroutine, and close.
-// Call lifecycle (pending table, demux, abort fan-out) stays in the adapter;
+// Call lifecycle (pending table, demux, abort fan-out) stays in streamrpc;
 // this layer owns only the wire mechanics.
 
 import (
@@ -16,6 +16,8 @@ import (
 	"net"
 	"sync"
 	"time"
+
+	"github.com/codermaybe/ethguard/internal/transport"
 )
 
 // controlWriteTimeout bounds the replies the reader sends outside any call
@@ -34,8 +36,8 @@ const maxWriteWait = 30 * time.Second
 
 // Conn is one established WebSocket connection. Reads happen on the single
 // reader goroutine the adapter starts; writes are serialized across callers
-// by one lock. Every write error leaves the connection unusable — the
-// adapter owns the abort decision.
+// by one lock. Every physical write error leaves the connection unusable;
+// cancellation before writing is recoverable. The RPC owner decides abort.
 type Conn struct {
 	raw net.Conn
 	// reader is the connection's one frame reader. It is sticky: after the
@@ -48,7 +50,9 @@ type Conn struct {
 	// so a caller whose context expires while a stalled writer holds the
 	// lock can give up instead of queueing forever. Acquire with
 	// lockWriter/writeControlLock, release via the returned function.
-	writeSem chan struct{}
+	writeSem  chan struct{}
+	done      chan struct{}
+	closeOnce sync.Once
 
 	// closeReplyOnce guards the protocol-violation close reply: a caller
 	// that ignores the first error and reads again must not push a second
@@ -63,6 +67,7 @@ func newConn(result *handshakeResult, limit int64) *Conn {
 		raw:      result.conn,
 		reader:   newFrameReader(result.br, clientSide, limit),
 		writeSem: make(chan struct{}, 1),
+		done:     make(chan struct{}),
 	}
 }
 
@@ -73,22 +78,18 @@ func (c *Conn) lockWriter(ctx context.Context) (func(), error) {
 	select {
 	case c.writeSem <- struct{}{}:
 		return func() { <-c.writeSem }, nil
-	default:
-	}
-	select {
-	case c.writeSem <- struct{}{}:
-		return func() { <-c.writeSem }, nil
 	case <-ctx.Done():
 		return nil, ctx.Err()
+	case <-c.done:
+		return nil, transport.ErrConnectionClosed
 	}
 }
 
 // writeControlLock acquires the write lock without a context. The reader's
 // control replies wait for the current writer, whose own deadline (never
 // unbounded, see maxWriteWait) releases the lock.
-func (c *Conn) writeControlLock() func() {
-	c.writeSem <- struct{}{}
-	return func() { <-c.writeSem }
+func (c *Conn) writeControlLock() (func(), error) {
+	return c.lockWriter(context.Background())
 }
 
 // ReadMessage reads one complete text message. It is the single reader
@@ -103,6 +104,9 @@ func (c *Conn) writeControlLock() func() {
 func (c *Conn) ReadMessage() ([]byte, error) {
 	opcode, data, err := c.reader.readMessage(c.handleControl)
 	if err != nil {
+		if errors.Is(err, ErrFrameTooLarge) {
+			return nil, errors.Join(err, transport.ErrBodyTooLarge, transport.ErrConnectionClosed)
+		}
 		var frameErr *frameError
 		switch {
 		case errors.As(err, &frameErr):
@@ -152,38 +156,80 @@ func (c *Conn) handleControl(opcode byte, payload []byte) error {
 }
 
 // WriteMessage writes one masked text frame under the write lock. The
-// context's deadline bounds the write; a context without one still inherits
-// the maxWriteWait floor, so no caller can hold the lock forever on a
-// connection the peer stopped draining. Cancellation while waiting for the
-// lock — or while a stalled writer holds it — returns before any bytes move.
-func (c *Conn) WriteMessage(ctx context.Context, data []byte) error {
+// context's deadline bounds the write; a context without one inherits the
+// maxWriteWait ceiling. Cancellation interrupts both lock acquisition and
+// physical writing. The bool reports actual transferred bytes, even on error.
+func (c *Conn) WriteMessage(ctx context.Context, data []byte) (bool, error) {
 	release, err := c.lockWriter(ctx)
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer release()
 	if err := ctx.Err(); err != nil {
-		return err
+		return false, err
+	}
+	select {
+	case <-c.done:
+		return false, transport.ErrConnectionClosed
+	default:
 	}
 	deadline := time.Now().Add(maxWriteWait)
 	if ctxDeadline, ok := ctx.Deadline(); ok && ctxDeadline.Before(deadline) {
 		deadline = ctxDeadline
 	}
 	if err := c.raw.SetWriteDeadline(deadline); err != nil {
-		return fmt.Errorf("wss: set write deadline: %w", err)
+		return false, fmt.Errorf("wss: set write deadline: %w", err)
 	}
-	return writeFrame(c.raw, clientSide, opText, data)
+	// Cancellation without a deadline must interrupt a blocked physical write.
+	// Join a running callback before releasing the sole writer, so it cannot
+	// expire a subsequent caller's deadline after that caller acquired the lock.
+	canceled := make(chan struct{})
+	stopCancel := context.AfterFunc(ctx, func() {
+		_ = c.raw.SetWriteDeadline(time.Now())
+		close(canceled)
+	})
+	defer func() {
+		if !stopCancel() {
+			<-canceled
+		}
+	}()
+	w := &progressWriter{conn: c.raw}
+	err = writeFrame(w, clientSide, opText, data)
+	return w.written, err
+}
+
+// progressWriter observes actual socket progress, including writes that fail
+// after transferring a prefix. A caller's context alone cannot infer this fact.
+type progressWriter struct {
+	conn    net.Conn
+	written bool
+}
+
+func (w *progressWriter) Write(p []byte) (int, error) {
+	n, err := w.conn.Write(p)
+	if n > 0 {
+		w.written = true
+	}
+	if err != nil {
+		// Even a socket returning context.Canceled is a physical failure,
+		// distinct from the recoverable exact ctx.Err() pre-write result.
+		err = fmt.Errorf("wss: physical write: %w", err)
+	}
+	return n, err
 }
 
 // writeControl sends one control frame under the write lock with the bounded
 // control-write deadline.
 func (c *Conn) writeControl(opcode byte, payload []byte) error {
-	release := c.writeControlLock()
+	release, err := c.writeControlLock()
+	if err != nil {
+		return err
+	}
 	defer release()
 	if err := c.raw.SetWriteDeadline(time.Now().Add(controlWriteTimeout)); err != nil {
 		return fmt.Errorf("wss: set control write deadline: %w", err)
 	}
-	err := writeFrame(c.raw, clientSide, opcode, payload)
+	err = writeFrame(c.raw, clientSide, opcode, payload)
 	_ = c.raw.SetWriteDeadline(time.Time{})
 	return err
 }
@@ -195,10 +241,15 @@ func (c *Conn) SetReadDeadline(deadline time.Time) error {
 	return c.raw.SetReadDeadline(deadline)
 }
 
-// Close releases the underlying connection. Idempotency and lifecycle
-// bookkeeping stay with the adapter's close-once wrapper.
+// Close immediately releases the physical connection and its lock waiters.
+// Graceful pending-call drain belongs to the shared RPC transport.
 func (c *Conn) Close() error {
-	return c.raw.Close()
+	var err error
+	c.closeOnce.Do(func() {
+		close(c.done)
+		err = c.raw.Close()
+	})
+	return err
 }
 
 // closePayload encodes a close frame body: a 2-byte code and a UTF-8 reason.

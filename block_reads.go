@@ -51,7 +51,7 @@ func (c *Client) blockByNumberExec(ctx context.Context, number *big.Int) (*ethap
 		return c.blockByNegativeNumber(ctx, number)
 	}
 	if number == nil {
-		ref, err := c.establishAnchor(ctx, "")
+		ref, err := c.establishBusinessReference(ctx, "")
 		if err != nil {
 			return nil, CallResult{Decision: &rpc.Decision{Status: rpc.Unknown, Reference: anchorReference(ref)}}, err
 		}
@@ -84,7 +84,7 @@ func (c *Client) blockByNegativeNumber(ctx context.Context, number *big.Int) (*e
 	case -2, -3, -4:
 		tags := map[int64]string{-2: "latest", -3: "finalized", -4: "safe"}
 		tag := tags[number.Int64()]
-		ref, err := c.establishAnchor(ctx, tag)
+		ref, err := c.establishBusinessReference(ctx, tag)
 		if err != nil {
 			return nil, CallResult{Decision: &rpc.Decision{Status: rpc.Unknown, Reference: anchorReference(ref)}}, err
 		}
@@ -134,7 +134,7 @@ func (c *Client) headerByNumberExec(ctx context.Context, number *big.Int) (*etha
 		return nil, CallResult{}, fmt.Errorf("block number exceeds supported height range: %w", ErrInvalidRequest)
 	}
 	if number == nil {
-		ref, err := c.establishAnchor(ctx, "")
+		ref, err := c.establishBusinessReference(ctx, "")
 		if err != nil {
 			return nil, CallResult{Decision: &rpc.Decision{Status: rpc.Unknown, Reference: anchorReference(ref)}}, err
 		}
@@ -151,7 +151,7 @@ func (c *Client) headerByNumberExec(ctx context.Context, number *big.Int) (*etha
 			return nil, CallResult{}, fmt.Errorf("ethguard: pending header typed projection is not supported: %w", ErrInvalidRequest)
 		case -2, -3, -4:
 			tags := map[int64]string{-2: "latest", -3: "finalized", -4: "safe"}
-			ref, err := c.establishAnchor(ctx, tags[number.Int64()])
+			ref, err := c.establishBusinessReference(ctx, tags[number.Int64()])
 			if err != nil {
 				return nil, CallResult{Decision: &rpc.Decision{Status: rpc.Unknown, Reference: anchorReference(ref)}}, err
 			}
@@ -173,9 +173,9 @@ func (c *Client) headerByNumberExec(ctx context.Context, number *big.Int) (*etha
 	return header, CallResult{Decision: decisionOf(decision)}, headerErr
 }
 
-// BlockNumber returns the height of the currently corroborated block reference.
-// It is a derivation over corroborated primitives, not an independent read, and
-// the selection reasoning is stated here rather than left implicit:
+// BlockNumber returns the height of the current business reference, with a
+// Forwarded decision on a single-source client. In corroborating mode it is a
+// derivation over corroborated primitives, with the following selection rule:
 //
 //   - Sources sit at different heads as a matter of course. A fleet fan-out
 //     of eth_blockNumber would turn routine replication lag into conflict;
@@ -195,7 +195,7 @@ func (c *Client) BlockNumber(ctx context.Context) (uint64, CallResult, error) {
 }
 
 func (c *Client) blockNumberExec(ctx context.Context) (uint64, CallResult, error) {
-	ref, err := c.establishAnchor(ctx, "")
+	ref, err := c.establishBusinessReference(ctx, "")
 	if err != nil {
 		return 0, CallResult{Decision: &rpc.Decision{Status: rpc.Unknown, Reference: anchorReference(ref)}}, err
 	}

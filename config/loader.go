@@ -3,10 +3,11 @@ package config
 import (
 	"bytes"
 	"fmt"
-	"net/url"
 	"os"
 	"strings"
 	"time"
+
+	"github.com/codermaybe/ethguard/internal/endpoint"
 
 	"gopkg.in/yaml.v3"
 )
@@ -18,47 +19,14 @@ const (
 	defaultFinalizedLag   = 32
 )
 
-// CanonicalEndpoint reduces one endpoint to the identity the upstream pool
-// deduplicates by: lowercase scheme and host, an explicit default port
-// stripped (80 for http/ws, 443 for https/wss), and a lone "/" path dropped.
-// The rule mirrors pool's normalizeEndpointID; the two must stay in agreement,
-// because a configuration whose declared upstreams collapse into fewer pool
-// members would silently shrink the voting basis below what the operator
-// believes they configured. Non-default ports and distinct paths stay
-// significant — they address different listeners or nodes.
+// CanonicalEndpoint returns the shared endpoint identity used by configuration
+// duplicate checks and pool membership. Relative IPC paths resolve against cwd.
 func CanonicalEndpoint(raw string) (string, error) {
-	u, err := url.Parse(raw)
+	parsed, err := endpoint.Parse(raw)
 	if err != nil {
-		return "", fmt.Errorf("endpoint URL is malformed")
+		return "", err
 	}
-	if u.Scheme == "" || u.Host == "" {
-		return "", fmt.Errorf("endpoint must include a scheme and host")
-	}
-	u.Scheme = strings.ToLower(u.Scheme)
-	u.Host = strings.ToLower(u.Host)
-	if isDefaultPort(u.Scheme, u.Port()) {
-		u.Host = u.Hostname()
-		if strings.Contains(u.Host, ":") {
-			u.Host = "[" + u.Host + "]" // IPv6 literal without port
-		}
-	}
-	if u.Path == "/" {
-		u.Path = ""
-	}
-	return u.String(), nil
-}
-
-// isDefaultPort reports whether port is the conventional listener for
-// scheme. Empty means unspecified, never a default.
-func isDefaultPort(scheme, port string) bool {
-	switch scheme {
-	case "http", "ws":
-		return port == "80"
-	case "https", "wss":
-		return port == "443"
-	default:
-		return false
-	}
+	return parsed.CanonicalID(), nil
 }
 
 // LoadFile reads and parses a YAML configuration file.
@@ -70,60 +38,18 @@ func LoadFile(path string) (Config, error) {
 	return ParseYAML(data)
 }
 
-// FromEndpoints builds a Config whose upstreams dial exactly the given RPC
-// endpoints — the programmatic counterpart of a minimal YAML file. Every
-// entry gets a derived display id ("rpc-1", "rpc-2", ...) and the transport
-// its scheme implies (http(s) → native-http, ws(s) → wss), then the result
-// passes the same Validate as the YAML path, so a Config returned here is
-// usable by ethguard.New without a second failure mode.
-//
-// Errors carry the field path, the offending endpoint's index, and a fix
-// hint: "config: upstreams[1]: endpoint scheme "ftp" is not an Ethereum RPC
-// transport: use http, https, ws, or wss". Duplicate endpoints fail for the
-// same reason the YAML path rejects them — exact duplicates silently shrink
-// the voting basis below what the caller believes it configured.
+// FromEndpoints builds and normalizes a configuration from distinct endpoints.
+// It infers transports and diagnostic ids and freezes relative IPC paths now.
+// IPC configuration is recognized before its concrete transport is available.
 func FromEndpoints(urls ...string) (Config, error) {
 	if len(urls) == 0 {
-		return Config{}, fmt.Errorf("config: upstreams: at least one endpoint is required: list two or more distinct endpoints for corroboration, or dial one endpoint explicitly with ethguard.DialUncorroborated")
+		return Config{}, fmt.Errorf("config: upstreams: at least one endpoint is required: one endpoint selects Forwarded mode; two or more distinct endpoints select Majority mode")
 	}
-	cfg := Config{Upstreams: make([]Upstream, 0, len(urls))}
-	seen := make(map[string]struct{}, len(urls))
+	cfg := Config{Upstreams: make([]Upstream, len(urls))}
 	for i, raw := range urls {
-		endpoint := strings.TrimSpace(raw)
-		if endpoint == "" {
-			return Config{}, fmt.Errorf("config: upstreams[%d]: endpoint is empty: provide an http(s) or ws(s) RPC URL, e.g. https://node.example:8545", i)
-		}
-		parsed, err := url.Parse(endpoint)
-		if err != nil || parsed.Host == "" {
-			return Config{}, fmt.Errorf("config: upstreams[%d]: endpoint is not a valid URL: include a scheme and host, e.g. https://node.example:8545", i)
-		}
-		var transport Transport
-		switch parsed.Scheme {
-		case "http", "https":
-			transport = TransportNativeHTTP
-		case "ws", "wss":
-			transport = TransportWSS
-		default:
-			return Config{}, fmt.Errorf("config: upstreams[%d]: endpoint scheme %q is not an Ethereum RPC transport: use http, https, ws, or wss", i, parsed.Scheme)
-		}
-		canonical, err := CanonicalEndpoint(endpoint)
-		if err != nil {
-			return Config{}, fmt.Errorf("config: upstreams[%d]: endpoint is malformed", i)
-		}
-		if _, dup := seen[canonical]; dup {
-			return Config{}, fmt.Errorf("config: upstreams[%d]: endpoint duplicates an earlier entry after normalization: use distinct independent providers", i)
-		}
-		seen[canonical] = struct{}{}
-		cfg.Upstreams = append(cfg.Upstreams, Upstream{
-			ID:        fmt.Sprintf("rpc-%d", i+1),
-			Endpoint:  endpoint,
-			Transport: transport,
-		})
+		cfg.Upstreams[i].Endpoint = raw
 	}
-	if err := cfg.Validate(); err != nil {
-		return Config{}, err
-	}
-	return cfg, nil
+	return Normalize(cfg)
 }
 
 // ParseYAML unmarshals YAML bytes into Config and runs basic validation.
@@ -136,86 +62,117 @@ func ParseYAML(data []byte) (Config, error) {
 	if err := dec.Decode(&cfg); err != nil {
 		return Config{}, fmt.Errorf("config: parse yaml: %w", err)
 	}
-	if err := cfg.Validate(); err != nil {
-		return Config{}, err
+	// String fields alone cannot distinguish an omitted id from an explicit
+	// empty/null id. Preserve that YAML distinction only while loading; the
+	// returned Config has one normalized representation and no hidden cache.
+	var presence struct {
+		Upstreams []map[string]any `yaml:"upstreams"`
 	}
-	return cfg, nil
+	if err := yaml.Unmarshal(data, &presence); err != nil {
+		return Config{}, fmt.Errorf("config: parse yaml: %w", err)
+	}
+	for i, fields := range presence.Upstreams {
+		if _, explicit := fields["id"]; explicit && strings.TrimSpace(cfg.Upstreams[i].ID) == "" {
+			return Config{}, fmt.Errorf("config: upstreams[%d]: explicit id must not be empty", i)
+		}
+	}
+	return Normalize(cfg)
 }
 
-// Validate checks that Config is usable by the upstream pool and that every
-// option has the same domain accepted by ethguard.New.
+// Validate checks the same domain as Normalize without modifying the receiver.
+// To retain inferred fields and freeze a relative IPC path, use Normalize.
 func (c Config) Validate() error {
+	_, err := Normalize(c)
+	return err
+}
+
+// Normalize returns an independently owned configuration with inferred ids and
+// transports and frozen dial targets. Existing absolute targets remain stable
+// across later validation/construction even if process cwd changes. No parsed
+// cache can become inconsistent when a caller edits the returned public fields.
+func Normalize(c Config) (Config, error) {
 	if len(c.Upstreams) == 0 {
-		return fmt.Errorf("config: at least one upstream is required")
+		return Config{}, fmt.Errorf("config: at least one upstream is required")
+	}
+	c.Upstreams = append([]Upstream(nil), c.Upstreams...)
+	if c.Anchoring != nil {
+		copy := *c.Anchoring
+		c.Anchoring = &copy
+	}
+	if c.TipTracking != nil {
+		copy := *c.TipTracking
+		c.TipTracking = &copy
 	}
 	seenIDs := make(map[string]struct{}, len(c.Upstreams))
-	seenEndpoints := make(map[string]int, len(c.Upstreams))
 	for i, upstream := range c.Upstreams {
+		if upstream.ID == "" {
+			continue
+		}
 		if strings.TrimSpace(upstream.ID) == "" {
-			return fmt.Errorf("config: upstreams[%d]: id is required", i)
-		}
-		if strings.TrimSpace(upstream.Endpoint) == "" {
-			return fmt.Errorf("config: upstreams[%d]: endpoint is required", i)
-		}
-		endpoint, parseErr := url.Parse(upstream.Endpoint)
-		if parseErr != nil || endpoint.Host == "" {
-			return fmt.Errorf("config: upstreams[%d]: endpoint must include a valid scheme and host", i)
-		}
-		if upstream.Transport != "" {
-			switch upstream.Transport {
-			case TransportNativeHTTP:
-				if endpoint.Scheme != "http" && endpoint.Scheme != "https" {
-					return fmt.Errorf("config: upstreams[%d]: transport %q requires an http(s) endpoint", i, upstream.Transport)
-				}
-			case TransportWSS:
-				if endpoint.Scheme != "ws" && endpoint.Scheme != "wss" {
-					return fmt.Errorf("config: upstreams[%d]: transport %q requires a ws(s) endpoint", i, upstream.Transport)
-				}
-			default:
-				return fmt.Errorf("config: upstreams[%d]: unknown transport %q (want native-http or wss)", i, upstream.Transport)
-			}
-		} else if endpoint.Scheme != "http" && endpoint.Scheme != "https" && endpoint.Scheme != "ws" && endpoint.Scheme != "wss" {
-			return fmt.Errorf("config: upstreams[%d]: endpoint scheme %q requires an explicit supported transport", i, endpoint.Scheme)
+			return Config{}, fmt.Errorf("config: upstreams[%d]: id is required when explicitly provided", i)
 		}
 		if _, exists := seenIDs[upstream.ID]; exists {
-			return fmt.Errorf("config: upstreams[%d]: duplicate id %q", i, upstream.ID)
+			return Config{}, fmt.Errorf("config: upstreams[%d]: duplicate id %q", i, upstream.ID)
 		}
 		seenIDs[upstream.ID] = struct{}{}
-		// Duplicate endpoints silently collapse to one pool member at
-		// construction, shrinking the voting basis below what the operator
-		// configured. Reject duplicates by the same identity the pool
-		// deduplicates by — normalization folds scheme and host case, default
-		// ports (80/443) and a trailing "/" — not by the raw string, which
-		// would let spelling variants of one node pass as independent
-		// sources. Pool-side URL normalization remains pool's domain; this
-		// check must mirror it, which TestNormalizeEndpointIDMatchesConfigCanonical pins.
-		canonical, canonErr := CanonicalEndpoint(upstream.Endpoint)
-		if canonErr != nil {
-			return fmt.Errorf("config: upstreams[%d]: endpoint is malformed", i)
+	}
+	seenEndpoints := make(map[string]int, len(c.Upstreams))
+	nextID := 1
+	for i := range c.Upstreams {
+		upstream := &c.Upstreams[i]
+		parsed, err := endpoint.Parse(upstream.Endpoint)
+		if err != nil {
+			return Config{}, fmt.Errorf("config: upstreams[%d]: %w", i, err)
 		}
-		if first, exists := seenEndpoints[canonical]; exists {
-			return fmt.Errorf("config: upstreams[%d]: endpoint is the same member as upstreams[%d] after normalization: use distinct independent providers", i, first)
+		inferred := Transport(parsed.Transport())
+		if upstream.Transport != "" && upstream.Transport != inferred {
+			switch upstream.Transport {
+			case TransportNativeHTTP:
+				return Config{}, fmt.Errorf("config: upstreams[%d]: transport %q requires an http(s) endpoint", i, upstream.Transport)
+			case TransportWSS:
+				return Config{}, fmt.Errorf("config: upstreams[%d]: transport %q requires a ws(s) endpoint", i, upstream.Transport)
+			case TransportIPC:
+				return Config{}, fmt.Errorf("config: upstreams[%d]: transport %q requires an IPC endpoint", i, upstream.Transport)
+			default:
+				return Config{}, fmt.Errorf("config: upstreams[%d]: unknown transport %q (want native-http, wss or ipc)", i, upstream.Transport)
+			}
 		}
-		seenEndpoints[canonical] = i
+		if first, exists := seenEndpoints[parsed.CanonicalID()]; exists {
+			return Config{}, fmt.Errorf("config: upstreams[%d]: endpoint duplicates an earlier entry after normalization (same member as upstreams[%d]): use distinct independent providers", i, first)
+		}
+		seenEndpoints[parsed.CanonicalID()] = i
+		upstream.Endpoint, upstream.Transport = parsed.DialTarget(), inferred
+		if upstream.ID == "" {
+			for {
+				candidate := fmt.Sprintf("rpc-%d", nextID)
+				nextID++
+				if _, occupied := seenIDs[candidate]; occupied {
+					continue
+				}
+				upstream.ID = candidate
+				seenIDs[candidate] = struct{}{}
+				break
+			}
+		}
 	}
 	if c.Anchoring != nil {
 		preset := strings.ToLower(strings.TrimSpace(c.Anchoring.Preset))
 		if preset != "" && preset != "strict" && preset != "finalized" {
-			return fmt.Errorf("config: anchoring.preset must be strict or finalized, got %q", c.Anchoring.Preset)
+			return Config{}, fmt.Errorf("config: anchoring.preset must be strict or finalized, got %q", c.Anchoring.Preset)
 		}
 	}
 
 	if c.CollectTimeout != "" {
 		if d, err := time.ParseDuration(c.CollectTimeout); err != nil || d <= 0 {
-			return fmt.Errorf("config: collect_timeout must be a positive duration: %q", c.CollectTimeout)
+			return Config{}, fmt.Errorf("config: collect_timeout must be a positive duration: %q", c.CollectTimeout)
 		}
 	}
 	if c.TipTracking != nil && c.TipTracking.Interval != "" {
 		if d, err := time.ParseDuration(c.TipTracking.Interval); err != nil || d <= 0 {
-			return fmt.Errorf("config: tip_tracking.interval must be a positive duration: %q", c.TipTracking.Interval)
+			return Config{}, fmt.Errorf("config: tip_tracking.interval must be a positive duration: %q", c.TipTracking.Interval)
 		}
 	}
-	return nil
+	return c, nil
 }
 
 // DefaultCollectTimeout is the collect window applied when configuration

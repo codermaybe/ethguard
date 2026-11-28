@@ -92,11 +92,11 @@ func TestNewWithMembersRejectsDuplicateEndpointWithExplicitAdapter(t *testing.T)
 	}
 }
 
-func TestSubscriptionSourcesReturnsAllWSSMembersAsCopy(t *testing.T) {
+func TestSubscriptionSourcesReturnsDeclaredMembersAsCopy(t *testing.T) {
 	p, err := NewWithMembers(0, []Member{
 		{Name: "http", URL: "https://a.example"},
-		{Name: "ws-a", URL: "ws://a.example"},
-		{Name: "ws-b", URL: "wss://b.example"},
+		{Name: "ws-a", URL: "ws://a.example", Dialer: wss.NewDialer()},
+		{Name: "ws-b", URL: "wss://b.example", Dialer: wss.NewDialer()},
 	})
 	if err != nil {
 		t.Fatalf("NewWithMembers: %v", err)

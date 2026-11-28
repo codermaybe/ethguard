@@ -1,12 +1,13 @@
 # 代码库拓扑与模块所有权
 
-状态：2026-11-27 对象单树、编码生成、内部执行引擎、订阅 owner、根门面业务归组及诊断目录已收敛。本文统一定义模块所有权、依赖、ReadPlan／resolver／reference seam 与读取流程；后续目标与未实施改动按路线图推进。
+状态：2026-11-28 对象单树、编码生成、内部执行引擎、订阅 owner、根门面与诊断目录已收敛；统一接入、共享双工核、IPC、外围 ethadapter 及订阅交付关闭登记已通过本地验收。Windows 真实 pipe 运行仍待 CI。本文统一定义模块所有权、依赖、ReadPlan／resolver／reference seam 与读取流程。
 
 ## 1. 模块地图
 
 | Module | 拥有的知识与入口 | 不应拥有 |
 | --- | --- | --- |
-| root `ethguard.Client`／`EthClient` view | 按业务组织的公共 API、单次 CallResult、捕获与 Client 生命周期；Sources／Sample诊断值；订阅入口注入固定来源能力并公开 owner 的稳定类型 alias | 第二套装配、typed decoder、方法字段表或公开pool执行句柄 |
+| `ethadapter.Client` | 公开 geth 类型转换、精确业务签名与观察；完整块消费公开 uncle Provenance；以固定预算和关闭登记将原生订阅转交 geth channel | 网络、投票、项目 internal 包依赖或独立执行 owner |
+| root `ethguard.Client`／`EthClient` view | 按业务组织的公共 API、单次 CallResult、捕获与 Client 生命周期；Sources／Sample 诊断值；订阅入口注入固定来源能力、稳定类型 alias 和交付关闭登记 | 第二套装配、typed decoder、方法字段表或公开 pool 执行句柄 |
 | `internal/runtime` | 唯一生产 Composition Root；pool、aggregator、method、reference、projector 的组装 | 公共 API、第二套业务规则 |
 | `internal/pool` | 固定成员、source 生命周期、健康、调度、fan-out，消费 Transport Port | Ethereum 字段含义、裁决公式 |
 | `internal/aggregator` | invocation 顺序、reference／业务轮、收集与证据装配 | 具体 transport、字段语义、schema 解释 |
@@ -24,13 +25,15 @@
 | `internal/typed` | Value 到公开 Go 类型的唯一生产 projection | source collection、投票、网络取数 |
 | `internal/diag/{livecanary,shapeprobe,rpcsample,chainlist}` | canary、形态探测、采集／回放、registry读取及各自fixture；消费核心能力 | 被核心生产包反向导入、独立实现核心规则 |
 | `internal/transport` | Port-only 类型、能力与中立 sentinel | 方法 policy、quorum、安全裁决 |
-| `internal/transport/{http,wss}` | 原生 HTTP／raw WSS 的协议和保真 | 把 provider 错误重新解释为业务共识；依赖 ethclient |
-| `internal/rpcwire` | 两种原生adapter共用的JSON-RPC信封、请求ID关联与协议错误保真 | 方法解释、来源健康与裁决 |
+| `internal/transport/{http,wss,ipc}` | 原生 HTTP、WSS 握手／帧、IPC 平台拨号／有界 JSON 边界与物理连接薄装配 | 把 provider 错误重新解释为业务共识；依赖 ethclient |
+| `internal/transport/streamrpc` | 双工 pending/demux、通知租约与 pre-bind、订阅建立清理及 graceful/abort；消费 MessageConn 精确写结果 | 具体 WSS/IPC 依赖、物理写锁、业务裁定、重连／重放 |
+| `internal/rpcwire` | 原生传输共用的JSON-RPC信封、请求ID关联与协议错误保真 | 方法解释、来源健康与裁决 |
 | `internal/subscription` | Head/Logs/Receipts 状态机、Tip+DAG、连续路径/重组、过滤与内容证明、worker/恢复、证人/审计、预算/队列与source/session归属；通过注入能力编排 | 连接实现、pool/runtime/methods 具体依赖、第二套内容投票器、复用unary CallResult假装流式生命周期 |
 | `internal/uncertain` | invocation采集材料、保留预算与截断事实；实现执行入口要求的capture能力 | 方法裁决、source连接与对rpcengine的反依赖 |
 | `internal/jsonsafe`／`internal/limits` | JSON结构与资源安全检查／共享响应大小边界 | Ethereum方法字段规则、执行编排 |
 | `internal/verification`、`internal/testkit`、`rpctest` | 公开 seam 的黑盒、跨模块和 fixture 验证 | 被生产 Module 反向导入或成为生产事实源 |
-| `config` | 公开配置数据、装载及本地校验 | runtime装配与网络连接 |
+| `internal/endpoint` | 标准库纯解析；不可变端点类型、传输、拨号目标与规范身份 | 网络、配置装配、运行时与具体传输依赖 |
+| `config` | 公开配置数据、装载、同一规范化校验、id/transport补全与相对路径冻结 | runtime装配与网络连接 |
 | `observe` | 被动事件记录与公开HealthSnapshot值 | retry、调度与安全决策 |
 | `cmd`／`examples` | 操作入口、捕获与示例 | 独立实现核心规则 |
 
@@ -38,7 +41,7 @@
 
 根读取按业务归组：`state_reads.go`拥有身份、账户状态与节点状态；`block_reads.go`拥有block、header与height；`transaction_reads.go`拥有交易、receipt与log查询；`contract_execution.go`拥有call、revert、gas、fee与access-list；`simulate.go`拥有模拟。`read_helpers.go`只集中共享typed读与输入校验；`ethclient_view.go`集中全部view方法，直接调用同一私有实现。`blockAt`与`headerAt`保留各自投影、绑定及错误合同，不通过泛型回调合并。
 
-公开SDK由Client/view、ethapi业务模型、rpc数据合同、config、observe及订阅稳定类型组成。`rpc`不暴露执行计划、resolver或裁决实现。原公开pool／aggregator／rpc方法和投影执行包已移入各自internal owner，无旧路径alias或forwarder；Client.Pool()已退出，诊断使用Sources值快照与Sample原始采样，不能获取pool/source执行能力。root订阅文件只保留稳定alias及入口适配，Head／Logs／Receipts实现均属于internal/subscription。
+公开SDK由Client/view、外围ethadapter、ethapi业务模型、rpc数据合同、config、observe及订阅稳定类型组成。ethadapter只消费root／ethapi／rpc公开合同，其geth业务类型与算法依赖逐项受架构互锁限制；根与internal原生执行图不链接ethadapter、ethclient或bind/v2。47项精确签名、channel桥及关闭登记边界均已本地验收。`rpc`不暴露执行计划、resolver或裁决实现。原公开pool／aggregator／rpc方法和投影执行包已移入各自internal owner，无旧路径alias或forwarder；Client.Pool()已退出，诊断使用Sources值快照与Sample原始采样，不能获取pool/source执行能力。root订阅文件保留稳定alias、默认策略构造、入口适配及小型生命周期登记；Head／Logs／Receipts状态机均属于internal/subscription。
 
 `internal/diag`集中livecanary、shapeprobe、rpcsample/replay与chainlist，连同各自活动fixture一起归属。诊断消费核心，核心生产包禁止导入整个diag树；命令、rpctest、testkit和公开验证各留在原有边界。归档decisions与samples保留其历史provenance，不随代码路径迁移改写记录。
 
@@ -52,13 +55,13 @@
 
 `internal/subscription` 是三种订阅的唯一执行 owner，root 只保留公开入口/类型和 Client 生命周期适配。该 owner 通过注入能力编排，不拥有连接实现；固定成员快照回调保持查询/策略验证与成员获取的既有顺序，Source 的订阅、unary 与真实 Response 能力由调用方提供。Logs与Receipts的私有`contentSubscription[E]`只共用typed FIFO、版本提交、预算、请求登记、租约、窗口审计和关闭完成屏障；泛型参数仅表示交付值。各方法保留具体内容准备、过滤、证明、重试和公开事件。Receipts使用`internal/rpcengine.CanonicalOutcomeResolver`固定成员裁定，`pool.Source.Call`保留真实Response，`CallContext`只作投影；不新增通用pipeline或另一套Q算法。旧收据channel、事件Aggregator、Pull探测及累计票据预算已从工作区移除，最终方法验收状态见路线图。
 
-Head主锁串行拥有来源会话准入/退休、路径状态和停止；每个runSource唯一拥有inner及锁外退订，生产机会耗尽与wg实际退出分开。reapWork只等待实际工作再释放工作资源，owner watcher独立保护未消费队列，并由各订阅Close单独等待。锁方向为Head→queue/gate/budget、content→budget；网络、等待和Estimate位于主锁外，不引入Head/content嵌套锁。Client.Close保留owner取消及Pool自身关闭义务，订阅Close提供各自完成屏障，不新增通用生命周期管理器。
+Head主锁串行拥有来源会话准入/退休、路径状态和停止；每个runSource唯一拥有inner及锁外退订，生产机会耗尽与wg实际退出分开。reapWork只等待实际工作再释放工作资源，owner watcher独立保护未消费队列，并由各订阅Close单独等待。锁方向为Head→queue/gate/budget、content→budget；网络、等待和Estimate位于主锁外，不引入Head/content嵌套锁。Client.Close取消owner、关闭pool，并等待通过AttachSubscription登记的外围交付Done；登记锁外执行Stop与等待。直接创建的原生流仍以自身Close作为完成屏障。NextWithBudget先取得接收方额度再释放原生租约，Terminated／TerminalError独立发布稳定生产终态；Close仅短暂获取读取锁等待移交结束，清理等待在锁外完成。
 
 ### 响应事实与裁定的模块归属（2026-11-21，已验收）
 
 公开诊断只通过 `Client.Sources()` 的 `SourceSnapshot{Source rpc.SourceRef, Health observe.HealthSnapshot}` 值快照与 `Client.Sample(ctx, method, params...)` 原始采样进入。`HealthSnapshot` 的定义属于 `observe`，pool 只生产该数据。`Sample` 复用 client lifecycle、单次参数冻结及 Collect 的来源顺序、eligibility/健康和默认 latest-tip gate，使用 client collect timeout；完整返回 `rpc.Observation.Response` 与 Attempted/Source，Evidence 为空，不做 reference、admit 或裁决，也不经过限额 capture。收集错误与已有 observation 一同返回；响应可变字节由调用方独占。soak 的 deep-dive 保持第二轮真实请求与 Normalize 聚类。公开 API 不暴露 pool/source 执行句柄；pool 唯一生产工厂为 `NewWithMembers`。
 
-本轮响应结果模型采用通信交换与回答含义两个事实域。`rpc`拥有可交付的中立Response及裁定事实；`internal/transport/{http,wss}`产生实际通信事实，`internal/rpcwire`拥有信封及请求关联；`internal/methods`及对象模块解释方法内容；`internal/pool`负责调度与健康，`internal/aggregator`编排并消费解释结果，root负责操作组合和交付。Decision与operation不成为新的网络层。
+本轮响应结果模型采用通信交换与回答含义两个事实域。`rpc`拥有可交付的中立Response及裁定事实；`internal/transport/{http,wss,ipc}`产生实际通信事实，`internal/rpcwire`拥有信封及请求关联；`internal/methods`及对象模块解释方法内容；`internal/pool`负责调度与健康，`internal/aggregator`编排并消费解释结果，root负责操作组合和交付。Decision与operation不成为新的网络层。
 
 逐源数据使用同一个`rpc.Response`：`pool.Emission`附加Source、Attempted、RTT和同源准入evidence，`rpc.Observation`与reference的`HeadObservation`继续携带它，不复制平面的value/error三元组。`Answer.Interpretation`记录方法准入、完成验证、拒绝、局部候选排除或内部失败；它不重写Exchange，也不删除原Answer.Kind与载荷。候选高度不适用属于局部排除，不能伪造来源未回答。错误投影和候选资格读取集中在Response；下游不从error反向重建协议答案。
 
@@ -118,6 +121,8 @@ flowchart TD
 
 箭头表示依赖能力或契约，不授权 reference 直接 import pool。生产 `PoolHeadReader`、`MethodHeadCodec`、`ReferenceStage` 与单个 `ReferenceService` 由 runtime 绑定；reference 可消费 rpcengine 的共享裁决机制，但仍通过自有端口读取和解释 head；root 直接消费该服务的证据，派生公开 hash／height 与 CallResult。一次移动标签读取只有一个 Invocation 和冻结 Basis，不嵌套启动另一轮顶层 Aggregate。
 
+构造入口统一按固定配置源数选定规则：0 源拒绝、1 源 Forwarded／Floor=0、2+ 不同源 Majority／Floor=2。业务 reference 与独立 Anchor 共用建立算法，由 rpcengine 按用途与冻结 Basis 判定可用性；单源业务允许诚实 Forwarded pin，独立 Anchor 仍要求 Corroborated。Open/OpenContext 仅复用既有配置与 Option 装配，不引入第二个执行 owner。
+
 硬规则：
 
 1. Interface 由消费者定义；Transport／Head-Reading Port 不携带方法 resolver 装配。
@@ -127,7 +132,7 @@ flowchart TD
 5. 只有一个 Composition Root 和一个 typed 实现。root 与官方形状 view 不得各自实现一套执行、重试、解析或证据链。
 6. 对象结构、编码与请求绑定只属于 internal/ethobject 单树；对象允许依赖 rpc 数据合同，禁止反向导入 rpcengine、methods、aggregator、pool、projection、runtime 或 root facade。标量原语属于 ethcodec，离线生成器属于 wiregen；生产不得导入 testkit 的 encoder coverage helper。
 7. 订阅仅由 internal/subscription 执行，允许消费 rpcengine 及中立 transport port；禁止导入 root、pool、runtime、methods 或具体 transport。白盒测试随 owner，公开入口验收留在 root／verification。
-8. 生产只装配 native HTTP／raw WSS，由每个来源的 Transport 声明选择；SDK 不暴露 HTTP adapter 开关或 dialer 注入。geth 的具体 client／rpc 仅用于现有静态 interlock 允许的测试和显式诊断，历史观察保持原 provenance。
+8. 生产当前装配 native HTTP／raw WSS；endpoint 纯解析拥有传输推导与身份，config 统一规范化，runtime 消费已冻结目标并选择 dialer，pool 保存构造期有界订阅能力。IPC 当前仅完成端点识别，尚未装配拨号。SDK 不暴露 HTTP adapter 开关或 dialer 注入。geth 的具体 client／rpc 仅用于现有静态 interlock 允许的测试和显式诊断，历史观察保持原 provenance。
 9. 核心生产包禁止导入整个 `internal/diag` 树，包括未来新增子包。interlock 按包边界排除 cmd、examples、rpctest、diag、testkit、verification 消费树，其余生产包默认受保护；新增核心 helper 不需逐包登记。诊断目录迁移保留原始 fixture 内容与历史 provenance。
 
 ## 3. 单次读取与阶段所有权

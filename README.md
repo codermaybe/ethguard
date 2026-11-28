@@ -2,9 +2,9 @@
 
 **English** · [简体中文](README.zh-CN.md)
 
-EthGuard queries third-party Ethereum execution RPC sources and returns method-aware results with explicit status and source evidence. It provides fixed-membership corroboration, common references for moving-state reads, native HTTP/raw WSS, writes and subscriptions.
+EthGuard queries third-party Ethereum execution RPC sources and returns method-aware results with explicit status and source evidence. It provides fixed-membership corroboration, common references for moving-state reads, native HTTP/raw WSS/local IPC, writes and subscriptions.
 
-Status: the main framework, the 47-method name target for go-ethereum v1.17.10, and the public generated-model migration are in place. Per-method semantics, provider observations and lifecycle evidence remain under review. This is not a complete compatibility or stable-release claim. See the [roadmap](docs/design/project-roadmap.md) and [coverage](docs/design/method-transport-coverage.md).
+Status: the unified constructors, inferred configuration, shared WSS/IPC transport, generated models and 47-method go-ethereum v1.17.10 adapter have passed local acceptance, including ordinary and race tests. Windows named pipe runtime acceptance remains pending in CI. Per-method and provider evidence retain their documented limits; this is not a complete compatibility or stable-release claim. See the [roadmap](docs/design/project-roadmap.md) and [coverage](docs/design/method-transport-coverage.md).
 
 `Corroborated` means provider-backed cross-source evidence. It is not Ethereum consensus, canonical-chain membership, cryptographic finality or proof that endpoints are independent. Selected and Forwarded retain their weaker guarantees.
 
@@ -28,15 +28,33 @@ view := client.EthClient()
 balance, err := view.BalanceAt(ctx, address, nil)
 ```
 
-Public business models are generated `ethapi` types: Address/Hash, Block/Header/Transaction/Receipt/Log, CallMsg, query types and Simulate models. They do not have geth Go nominal type identity. Existing bind/v2 interfaces require an explicit adapter. Writes accept BinaryTransaction, an interface with MarshalBinary; a geth transaction can supply the bytes without becoming the public business model.
+Public business models are generated `ethapi` types: Address/Hash, Block/Header/Transaction/Receipt/Log, CallMsg, query types and Simulate models. They do not have geth Go nominal type identity. Use the peripheral `ethadapter` for geth business types; its 47 exact method signatures include three channel subscriptions and satisfy `bind/v2.ContractBackend` and `DeployBackend`. Writes accept BinaryTransaction, an interface with MarshalBinary; a geth transaction can supply the bytes without becoming the public business model.
 
-Exactly one endpoint requires explicit Forwarded mode:
+
+For existing go-ethereum query and transaction code, use the same execution through geth types:
 
 ```go
-client, err := ethguard.DialUncorroborated("https://your-provider")
+client, err := ethadapter.Dial("https://rpc-a.example", "https://rpc-b.example")
+if err != nil { return err }
+defer client.Close()
+balance, err := client.BalanceAt(ctx, common.HexToAddress("0x000000000000000000000000000000000000dead"), nil)
 ```
 
-Dial refuses a single endpoint and duplicate endpoint identities. Multiple URLs still do not prove independent operators. Construction makes no network requests; DialContext bounds construction only. Chain identity is not implicitly pinned; configure WithChainID or chain_id explicitly when required.
+Advanced configuration stays on `ethguard`: wrap a configured core with `ethadapter.New(core)`. `Core()` returns that same safe client. Optional `WithAudit` or `WithLogger` observes conversions and core results; outer `ethguard.WithResult` remains effective. Invalid values and failed content commitments return conversion errors. See the [compatibility contract](docs/design/go-ethereum-compatibility-policy.md) for exact conversion and evidence boundaries.
+
+Adapter subscriptions use fixed defaults and the familiar geth channel signatures. Any native path retraction, including a zero-match log block, terminates the bridge with `ethguard.ErrReorgDetected`; callers handle the error and perform their own rollback or rescan. Use `Core().Subscribe*` when you need the complete atomic path changes and proofs.
+
+One endpoint selects Forwarded mode; two or more distinct endpoints select Majority mode:
+
+```go
+client, err := ethguard.Dial("https://your-provider")
+```
+
+Empty lists and duplicate endpoint identities are rejected. The mode and membership stay fixed when sources fail. Multiple URLs still do not prove independent operators. Construction makes no network requests; DialContext and OpenContext check cancellation at entry without binding the client's lifetime. Chain identity is not implicitly pinned; use Open with WithChainID or configure chain_id when required.
+
+```go
+client, err := ethguard.Open([]string{"https://rpc-a.example", "https://rpc-b.example"}, ethguard.WithChainID(1))
+```
 
 ## SDK boundary and diagnostics
 
@@ -53,22 +71,21 @@ client, err := ethguard.LoadFile("config.yaml")
 ```yaml
 chain_id: 1
 upstreams:
-  - id: provider-a
-    endpoint: https://rpc-a.example
-  - id: provider-b
-    endpoint: wss://rpc-b.example
-    transport: wss
+  - endpoint: https://rpc-a.example
+  - endpoint: wss://rpc-b.example
 ```
 
-Omitted transport selects native HTTP. Explicit wss selects raw WebSocket. Both source kinds participate in the fixed membership for reads and writes. Configuration changes to membership require a new Client.
+Transport is inferred from each endpoint: HTTP(S) uses native HTTP, WS(S) uses raw WebSocket, and explicit local paths or ipc:// addresses use IPC. Optional explicit transport must match. Omitted ids become rpc-1, rpc-2, and so on, skipping explicitly reserved ids. Canonically duplicate endpoints are rejected. All source kinds participate in fixed membership for reads and writes; changing membership requires a new Client.
 
-Programmatic configuration uses config.FromEndpoints and ethguard.New; options such as WithChainID and WithFinalizedAnchoring apply to the same configuration model. The Go chain option wins over the file value. A runnable example is `go run ./examples/basic -config ./config.yaml`.
+Open accepts endpoint lists and Go options; config.FromEndpoints and ethguard.New remain available for configuration values. The Go chain option wins over the file value. WithFinalizedAnchoring requires at least two distinct sources and is rejected during single-source construction. A runnable example is `go run ./examples/basic -config ./config.yaml`.
 
 ## Results and evidence
 
-Deterministic typed reads require their declared corroboration threshold; insufficient support returns a classified failure. Median/local methods remain Selected. Generic read-only Call uses the registered method contract and rejects unknown methods locally. It does not provide an escape around validation or subscription setup.
+In multi-source mode, deterministic typed reads require their declared corroboration threshold; insufficient support returns a classified failure. Median/local methods retain their method-specific selection contracts. Successful single-source reads are Forwarded. Generic read-only Call uses the registered method contract and rejects unknown methods locally. It does not provide an escape around validation or subscription setup.
 
 With the default anchor strategy, moving latest/safe/finalized reads establish the requested level's per-call provider-backed reference. The explicit WithFinalizedAnchoring preset instead uses finalized selection for default/latest reads; safe retains its own level. Explicit pins remain explicit. Failed reference establishment sends no business request, and failures never shrink the frozen voting basis. Pending-local observations do not become Corroborated merely because several sources agree.
+
+Single-source moving reads use the same reference stage and pin the business request to an honest Forwarded reference. Standalone AnchorBlockHash, AnchorBlockHashForTag and AnchorBlockHeight still require Corroborated evidence. Tip tracking on one source can observe its health and reported height, but cannot prove freshness against peers.
 
 Complete block reads validate request identity and applicable header/body commitments, including transaction and withdrawals roots and uncle commitment. Header-only reads do not prove complete body contents. These checks establish the stated content relationships, not canonical-chain membership or finality.
 
@@ -92,21 +109,24 @@ Writes validate frozen transaction bytes and bind reported hashes to the local s
 
 Synchronous writes broadcast once, then poll for a receipt. CallResult.ReceiptWait keeps the last actual query and the latest formed receipt observation, each with its own sequence, Decision and error. An interrupted final query preserves an earlier null or conflict observation; the operation's Err describes final termination. These facts do not require raw source-evidence capture and retain at most two queries. EthGuard does not sign, choose gas, allocate nonces or manage replacements.
 
-Root and view provide SubscribeNewHead(ctx, policy), returning a HeadSubscription with Next, Basis and Close. Each event carries a complete continuous path change, including retractions for a reorg, frozen path witnesses and audit records. Fixed WSS members supply majority support; missing objects are recovered by hash. Memory, notification queues and request concurrency have explicit limits. A multi-source client with only one WSS source is rejected; an explicit single-source client remains Forwarded.
+Root and view provide SubscribeNewHead(ctx, policy), returning a HeadSubscription with Next, Basis and Close. Each event carries a complete continuous path change, including retractions for a reorg, frozen path witnesses and audit records. Members declaring bounded subscription support at construction supply majority support; missing objects are recovered by hash. Memory, notification queues and request concurrency have explicit limits. A multi-source client with only one subscription-capable source is rejected; a single-source client remains Forwarded. WSS and IPC support subscriptions. Unix IPC has passed local tests; Windows named pipe runtime acceptance remains pending in CI.
 
 SubscribeFilterLogs(ctx, query, policy) returns a LogsSubscription with Next/Basis/CommittedTip/Close. Its complete batches follow the Head birth path, include zero-match blocks and full block retractions, and prove matching log contents using transaction and receipt commitments. Numeric/hash filters select the live path without historical replay. The Logs implementation passed local acceptance on November 24, 2026.
 
 SubscribeTransactionReceipts(ctx, query, policy) uses ReceiptsSubscriptionPolicy and returns a ReceiptsSubscription with the same delivery operations. A nil or empty query selects all live receipts from the Head birth block. Complete transaction and receipt commitments prove coverage; a fixed quorum compares the delivered official fields, including declarations not covered by receipt roots. BlockSupplier and ReceiptSupport record these different forms of evidence. No chain configuration or independent execution proof is implied. The receipts stream passed local acceptance on November 25, 2026. See the [subscription contract](docs/design/subscription-contract.md) for policy fields, audit export and guarantee limits.
 
-Raw WSS supports request ID demux and bounded notifications. The adapter does not automatically reconnect/replay; root subscription workers may rebuild individual sessions. There is no general keepalive or unlimited recovery promise. HTTP/WSS error.data preservation, synthetic tests and real-provider observations are separate evidence tracks.
+Native callers can start with `ethguard.DefaultHeadSubscriptionPolicy()`, `DefaultLogsSubscriptionPolicy()` or `DefaultReceiptsSubscriptionPolicy()` and adjust the returned value as needed. A manually constructed zero policy remains invalid. Defaults are bounded admission budgets, not preallocated memory; their measured workload and limits are documented in the subscription contract.
 
-Close on either facade stops the shared Client. New operations fail before network contact; in-flight public operations converge with the owner lifecycle. Client.Close triggers asynchronous subscription cleanup. Call HeadSubscription.Close, LogsSubscription.Close or ReceiptsSubscription.Close to wait for that stream's tasks and owner watcher to exit. Explicit stream close or Next cancellation discards unread events; producer failure drains committed events before returning a terminal error with remaining audit. Slow cleanup can continue after the terminal becomes visible; the stream's Close still waits for it.
+WSS and IPC share request ID demux and bounded notifications. The adapter does not automatically reconnect/replay; root subscription workers may rebuild individual sessions. There is no general keepalive or unlimited recovery promise. HTTP/WSS error.data preservation, synthetic tests and real-provider observations are separate evidence tracks.
+
+Close on any facade stops the shared Client. New operations fail before network contact; in-flight public operations converge with the owner lifecycle. Adapter subscriptions register with that client: Unsubscribe, adapter.Close and Core.Close unblock pending sends and wait for native cleanup, delivery workers and Err closure, even when the caller never reads its channel. The library never closes caller channels, and no sends occur after the closing barrier completes. Directly created native streams still require HeadSubscription.Close, LogsSubscription.Close or ReceiptsSubscription.Close to await their own tasks and owner watcher. Native explicit close or Next cancellation discards unread events; producer failure drains committed events before returning a terminal error with remaining audit. Independent Terminated/TerminalError observation does not wait for that drain, while the stream's Close still waits for cleanup.
 
 ## Code and documentation
 
 | Module | Responsibility |
 | --- | --- |
 | root Client / EthClient | Public methods grouped by business, CallResult, lifecycle, diagnostics and one shared execution view |
+| ethadapter | geth business types, strict conversions, optional audit and bounded channel subscription delivery on the same core |
 | internal/runtime | The sole production composition root |
 | rpc | Public request, response, decision and evidence contracts; pure value helpers |
 | internal/rpcengine | Resolvers, read plans, canonical processing and adjudication |

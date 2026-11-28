@@ -22,7 +22,7 @@ func TestEIP1898DeclarationWithoutPositionsNeverPanics(t *testing.T) {
 	if _, needed := plan.ReferenceRequirement(req); needed {
 		t.Fatal("an EIP1898 declaration without positions cannot serve a reference")
 	}
-	prepared, pin, err := plan.PrepareWithReference(req, rpc.ReferenceEvidence{}, false)
+	prepared, pin, err := plan.PrepareWithReference(req, rpc.ReferenceEvidence{}, false, planTestBasis())
 	if err != nil {
 		t.Fatalf("prepare without positions must pass the request through: %v", err)
 	}
@@ -49,7 +49,7 @@ func TestFieldsRequirementMatchesRewriteStrictness(t *testing.T) {
 		if _, needed := plan.ReferenceRequirement(req); needed {
 			t.Fatalf("%v: contradictory tags must not establish a reference", obj)
 		}
-		_, _, err := plan.PrepareWithReference(req, rpc.ReferenceEvidence{}, false)
+		_, _, err := plan.PrepareWithReference(req, rpc.ReferenceEvidence{}, false, planTestBasis())
 		if !errors.Is(err, rpc.ErrInvalidRequest) {
 			t.Fatalf("%v: rewrite must own the mixed-tags rejection, got %v", obj, err)
 		}

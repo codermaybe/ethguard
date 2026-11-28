@@ -96,7 +96,7 @@ func TestReferenceRoundTipScopeFollowsTag(t *testing.T) {
 			p, nodes, sources, snap := tipScopedFleet(t)
 			engine := NewStrictHeadEstablishment(p, observe.Nop, 2*time.Second)
 			before := blockCallCounts(nodes)
-			_, err := engine.establish(context.Background(), sources, snap, tc.tag)
+			_, err := engine.establish(context.Background(), sources, snap, tc.tag, rpcengine.ReferencePurposeStandaloneAnchor)
 			if err != nil {
 				t.Fatalf("establish %s: %v", tc.tag, err)
 			}

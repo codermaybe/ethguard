@@ -1,4 +1,4 @@
-package wss
+package streamrpc
 
 import (
 	"context"
@@ -13,23 +13,19 @@ import (
 
 func newPendingTestTransport(t *testing.T) *Transport {
 	t.Helper()
-	conn, _ := newPipeConn(t)
-	tr := &Transport{
-		ws:                   conn,
-		ids:                  rpcwire.NewIDGen(),
-		limit:                DefaultReadLimit,
-		pending:              make(map[string]chan frameResult),
-		streams:              make(map[*NotificationStream]struct{}),
-		subscriptionIDs:      make(map[string]*NotificationStream),
-		pendingNotifications: make(map[string][]Notification),
-	}
+	conn := newScriptedPeer(t, func(peer *scriptedPeer) {
+		for range peer.requests {
+		}
+	})
+	tr := &Transport{conn: conn, ids: rpcwire.NewIDGen(), pending: make(map[string]chan frameResult), streams: make(map[*NotificationStream]struct{}), subscriptionIDs: make(map[string]*NotificationStream), pendingNotifications: make(map[string][]Notification)}
+	t.Cleanup(tr.Close)
 	return tr
 }
 
 func pushNotification(t *testing.T, tr *Transport, id string) {
 	t.Helper()
 	tr.dispatchNotification([]byte(fmt.Sprintf(
-		`{"method":"eth_subscription","params":{"subscription":%q,"result":"0x1"}}`, id)))
+		`{"jsonrpc":"2.0","method":"eth_subscription","params":{"subscription":%q,"result":"0x1"}}`, id)))
 }
 
 func TestPendingNotificationsBoundedAndCleanedUp(t *testing.T) {

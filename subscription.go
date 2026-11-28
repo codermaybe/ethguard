@@ -9,7 +9,7 @@ import (
 	"github.com/codermaybe/ethguard/rpc"
 )
 
-// subscriptionSources captures the fixed WSS membership used by one
+// subscriptionSources captures the fixed bounded-subscription membership used by one
 // subscription. The returned identities are stable for the pool lifetime;
 // source health never changes this denominator.
 func (c *Client) subscriptionSources() ([]sub.Source, error) {

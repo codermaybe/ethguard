@@ -13,19 +13,22 @@ import (
 
 // Clients admitted for execution use native HTTP.
 func TestExecutorUsesNativeHTTP(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if _, err := w.Write([]byte(`{"jsonrpc":"2.0","id":999,"result":"0x2a"}`)); err != nil && r.Context().Err() == nil {
 			t.Errorf("write fixture response: %v", err)
 		}
-	}))
-	t.Cleanup(srv.Close)
+	})
+	first := httptest.NewServer(handler)
+	second := httptest.NewServer(handler)
+	t.Cleanup(first.Close)
+	t.Cleanup(second.Close)
 
 	manifest := Manifest{
 		ChainID:     0,
 		HTTPAdapter: HTTPAdapterNative,
 		Selection: &Selection{
-			Selected: []SelectedMember{{SourceID: "probe", URL: srv.URL}},
+			Selected: []SelectedMember{{SourceID: "probe-1", URL: first.URL}, {SourceID: "probe-2", URL: second.URL}},
 		},
 		Reference: Reference{MaxLagBlocks: 8},
 		Timeouts:  Timeouts{StepMS: 2000},
@@ -38,7 +41,12 @@ func TestExecutorUsesNativeHTTP(t *testing.T) {
 	}
 	t.Cleanup(client.Close)
 	emissions, err := client.Sample(context.Background(), "eth_chainId")
-	if !errors.Is(err, ethguard.ErrAllSourcesDown) || len(emissions) != 1 || !errors.Is(emissions[0].Response.Err(), rpcwire.ErrIDMismatch) {
+	if !errors.Is(err, ethguard.ErrAllSourcesDown) || len(emissions) != 2 {
 		t.Fatalf("native executor did not reject the mismatched id: %+v, %v", emissions, err)
+	}
+	for _, emission := range emissions {
+		if !errors.Is(emission.Response.Err(), rpcwire.ErrIDMismatch) {
+			t.Fatalf("native emission accepted mismatched ID: %+v", emission)
+		}
 	}
 }

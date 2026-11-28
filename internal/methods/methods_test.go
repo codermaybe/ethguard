@@ -33,7 +33,7 @@ func TestStateReadPoliciesPinMovingTagsAndPreserveExplicitReferences(t *testing.
 				t.Fatal("the anchored state read declared no reference need")
 			}
 			evidence.Hash = pinned
-			prepared, pin, err := plan.PrepareWithReference(req, evidence, true)
+			prepared, pin, err := plan.PrepareWithReference(req, evidence, true, planTestBasis())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -55,7 +55,7 @@ func TestStateReadPoliciesPinMovingTagsAndPreserveExplicitReferences(t *testing.
 				req := rpc.Request{Method: tc.name, Params: params}
 				// refOK=false: explicit references and pending need no
 				// establishment, and none may be demanded.
-				prepared, _, err := plan.PrepareWithReference(req, rpc.ReferenceEvidence{}, false)
+				prepared, _, err := plan.PrepareWithReference(req, rpc.ReferenceEvidence{}, false, planTestBasis())
 				if err != nil {
 					t.Fatalf("%s %s: %v", tc.name, ref, err)
 				}

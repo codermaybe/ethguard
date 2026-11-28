@@ -93,7 +93,7 @@ func preparePlanRequest(t *testing.T, plan rpcengine.ReadPlan, req rpc.Request) 
 		}
 	}
 	evidence, ok := establishedEvidence(t, plan, req)
-	return plan.PrepareWithReference(req, evidence, ok)
+	return plan.PrepareWithReference(req, evidence, ok, planTestBasis())
 }
 
 // resolveCanonical drives the compiled method processor and its processed-only
@@ -129,4 +129,8 @@ func receiptRequest(t *testing.T) rpc.Request {
 		t.Fatal(err)
 	}
 	return rpc.Request{Method: MethodGetTransactionReceipt, Params: []any{fields.Hash}}
+}
+
+func planTestBasis() rpcengine.Basis {
+	return rpcengine.FreezeBasis([]rpc.SourceRef{{ID: "a"}, {ID: "b"}}, rpcengine.Corroboration{Mode: rpc.CorroborationMajority, Floor: 2})
 }

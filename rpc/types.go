@@ -175,9 +175,17 @@ type Decision struct {
 	SourceFaults     []SourceFault
 	CollectionFaults []error
 	// Provenance belongs to the selected value and is supplied by method
-	// admission or canonical processing. It is opaque to generic callers. eth_call also stores
-	// withheld revert-data bytes here when rule 4e removes them from Value;
-	// those bytes are audit material, not a corroborated field.
+	// admission or canonical processing. Generic callers treat it as opaque.
+	// For full eth_getBlockByHash/eth_getBlockByNumber results (full=true),
+	// nonempty Provenance is a JSON array of same-source, admitted uncle
+	// header responses in Value.uncles order. Each element can retain extra
+	// block-shaped source fields. An empty uncle list may have no Provenance.
+	// Consumers reconstructing a block must revalidate every header hash,
+	// match its corresponding Value.uncles hash, and verify the aggregate
+	// uncle root; this carrier never waives target representation checks.
+	// eth_call instead stores withheld revert-data bytes here when rule 4e
+	// removes them from Value; those bytes are audit material, not a
+	// corroborated field. Interpret Provenance only for its owning method.
 	Provenance json.RawMessage
 	// Representative is the first supporter of the winning cluster in this
 	// call's captured member order. A raw resolver without a result encoder

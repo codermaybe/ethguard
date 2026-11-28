@@ -640,7 +640,7 @@ func TestLogsPublishBudgetFailureKeepsVersionAndAudits(t *testing.T) {
 	}
 	life, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	s := &LogsSubscription{contentSubscription: &contentSubscription[LogsEvent]{life: life, cancel: cancel, budget: budget, notify: make(chan struct{}, 1), drained: make(chan struct{}), terminalReserve: terminalReserve, committedTip: AnchorNode{Number: 100}, pathVersion: 1}}
+	s := &LogsSubscription{contentSubscription: &contentSubscription[LogsEvent]{life: life, cancel: cancel, terminated: make(chan struct{}), budget: budget, notify: make(chan struct{}, 1), drained: make(chan struct{}), terminalReserve: terminalReserve, committedTip: AnchorNode{Number: 100}, pathVersion: 1}}
 	proofHold, err := budget.Reserve(3000)
 	if err != nil {
 		t.Fatal(err)
