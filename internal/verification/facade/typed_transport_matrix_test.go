@@ -15,10 +15,10 @@ import (
 	"github.com/codermaybe/ethguard"
 	"github.com/codermaybe/ethguard/config"
 	"github.com/codermaybe/ethguard/ethapi"
-	"github.com/codermaybe/ethguard/internal/rpcsample/replay"
+	"github.com/codermaybe/ethguard/internal/diag/rpcsample/replay"
+	"github.com/codermaybe/ethguard/internal/methods"
 	"github.com/codermaybe/ethguard/internal/testkit/ethapitest"
 	"github.com/codermaybe/ethguard/rpc"
-	"github.com/codermaybe/ethguard/rpc/methods"
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -584,8 +584,7 @@ func TestTypedFeeHistoryTransportFixture(t *testing.T) {
 		if len(req.Params) != 3 || wireString(t, req.Params[1]) != "0x10" {
 			t.Fatalf("transport %d params = %s, want [count, 0x10, percentiles]", i, req.Params)
 		}
-		var count uint64
-		if err := json.Unmarshal(req.Params[0], &count); err != nil || count != 2 {
+		if wireString(t, req.Params[0]) != "0x2" {
 			t.Fatalf("transport %d block count = %s", i, req.Params[0])
 		}
 		var percentiles []float64
@@ -601,7 +600,7 @@ func TestTypedFeeHistoryTransportFixture(t *testing.T) {
 // captured call object/result is loaded from the checked-in replay fixture;
 // only the anchor block is the existing self-consistent local block fixture.
 func TestTypedCallContractTransportFixture(t *testing.T) {
-	_, records, err := replay.LoadBatch("internal/rpcsample/testdata/eip1898-object/2026-09-23")
+	_, records, err := replay.LoadBatch("../../diag/rpcsample/testdata/eip1898-object/2026-09-23")
 	if err != nil {
 		t.Fatal(err)
 	}

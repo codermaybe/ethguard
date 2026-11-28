@@ -9,8 +9,8 @@ import (
 
 	"github.com/codermaybe/ethguard"
 	"github.com/codermaybe/ethguard/ethapi"
+	"github.com/codermaybe/ethguard/internal/methods"
 	"github.com/codermaybe/ethguard/rpc"
-	"github.com/codermaybe/ethguard/rpc/methods"
 	"github.com/codermaybe/ethguard/rpctest"
 )
 
@@ -30,7 +30,7 @@ func TestCallRevertForwardedPublicDelivery(t *testing.T) {
 			node := rpctest.NewNode(1)
 			defer node.Close()
 			node.FailWithData(methods.MethodCall, 3, "execution reverted", json.RawMessage(tc.data), tc.data != "")
-			client, err := ethguard.DialUncorroborated(node.URL())
+			client, err := ethguard.Dial(node.URL())
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -69,7 +69,7 @@ jobs:
           generated="$(mktemp)"
           audit="$(mktemp)"
           trap 'rm -f "$generated" "$audit"' EXIT
-          go run ./rpc/internal/wire/gen -out "$generated" -audit-out "$audit"
+          go run ./internal/wiregen -out "$generated" -audit-out "$audit"
           if ! cmp -s "$generated" ethapi/types.gen.go; then
             echo "::error::regenerate ethapi/types.gen.go with go generate ./ethapi"
             diff -u ethapi/types.gen.go "$generated"
@@ -147,11 +147,10 @@ jobs:
 
   # Cross-platform baseline: the tree must build and vet on Windows too.
   # .gitattributes pins LF checkouts, so the working tree is byte-identical
-  # to the Linux jobs. Tests stay Linux-only: the timing-sensitive wire and
-  # scheduling tests are calibrated to the Linux runners, and the race run
-  # doubles their cost.
+  # to the Linux jobs. IPC additionally runs against real Windows named pipes;
+  # cross-compilation alone is not evidence of pipe I/O correctness.
   windows:
-    name: build / vet (windows)
+    name: build / vet / IPC (windows)
     runs-on: windows-latest
     needs: check
     steps:
@@ -163,9 +162,15 @@ jobs:
         run: go build ./...
       - name: go vet
         run: go vet ./...
+      - name: shared duplex and IPC contracts
+        run: go test -race ./internal/transport/streamrpc ./internal/transport/ipc
+      - name: geth adapter contracts
+        run: go test -race ./ethadapter
+      - name: real Windows named pipe integration
+        run: go test -race ./internal/transport/ipc -run '^TestWindowsNamedPipe' -count=1 -v
 
-  # Link-time gate: production/native execution must not link ethclient.
-  # The internal geth oracle is isolated to testkit and diagnostic tools.
+  # Link-time gate: native execution excludes the peripheral adapter/client.
+  # The adapter and differential oracle are explicit consumers of the core.
   linktime:
     name: native architecture and oracle isolation
     runs-on: ubuntu-latest
@@ -177,10 +182,10 @@ jobs:
           go-version-file: go.mod
       - name: native execution graph excludes ethclient
         run: |
-          native_packages="$(go list -deps . ./internal/runtime ./pool ./rpc)"
-          if grep -q 'go-ethereum/ethclient' <<< "$native_packages"; then
-            echo "::error::the native execution graph links ethclient"
-            grep 'go-ethereum/ethclient' <<< "$native_packages"
+          native_packages="$(go list -deps . ./internal/runtime ./internal/pool ./internal/rpcengine ./rpc ./ethapi ./internal/transport/wss)"
+          if grep -Eq 'go-ethereum/(ethclient|accounts/abi/bind)|ethguard/ethadapter' <<< "$native_packages"; then
+            echo "::error::the native execution graph links a peripheral geth adapter/client"
+            grep -E 'go-ethereum/(ethclient|accounts/abi/bind)|ethguard/ethadapter' <<< "$native_packages"
             exit 1
           fi
       - name: geth oracle stays in internal testkit
@@ -190,7 +195,7 @@ jobs:
             exit 1
           fi
       - name: native transport and oracle tests
-        run: go test ./internal/testkit/gethoracle ./internal/transport/http/... ./internal/transport/wss/...
+        run: go test ./internal/testkit/gethoracle ./internal/transport/http/... ./internal/transport/streamrpc/... ./internal/transport/wss/... ./internal/transport/ipc/...
 
   # Scheduled fuzzing exercises untrusted JSON and WebSocket frame parsers
   # outside the pull-request critical path. Any discovered input is emitted by
@@ -214,20 +219,22 @@ jobs:
         run: go test ./internal/transport/wss -run=^$ -fuzz=FuzzFrameStream -fuzztime=1000000x -parallel=2 -timeout=10m
       - name: WebSocket frame writer
         run: go test ./internal/transport/wss -run=^$ -fuzz=FuzzWriteFrameRoundTrip -fuzztime=1000000x -parallel=2 -timeout=10m
+      - name: IPC JSON message boundaries
+        run: go test ./internal/transport/ipc -run=^$ -fuzz=FuzzIPCMessageScanner -fuzztime=1000000x -parallel=2 -timeout=10m
       - name: access-list encoder
-        run: go test ./rpc/internal/objects/accesslist -run=^$ -fuzz=FuzzEncodeIdempotent -fuzztime=1000000x -parallel=2 -timeout=10m
+        run: go test ./internal/ethobject/accesslist -run=^$ -fuzz=FuzzEncodeIdempotent -fuzztime=1000000x -parallel=2 -timeout=10m
       - name: block encoder
-        run: go test ./rpc/internal/objects/block -run=^$ -fuzz=FuzzEncodeIdempotent -fuzztime=1000000x -parallel=2 -timeout=10m
+        run: go test ./internal/ethobject/block -run=^$ -fuzz=FuzzEncodeIdempotent -fuzztime=1000000x -parallel=2 -timeout=10m
       - name: fee-history encoder
-        run: go test ./rpc/internal/objects/feehistory -run=^$ -fuzz=FuzzEncodeIdempotentAndNormalizeAgrees -fuzztime=1000000x -parallel=2 -timeout=10m
+        run: go test ./internal/ethobject/feehistory -run=^$ -fuzz=FuzzEncodeIdempotentAndNormalizeAgrees -fuzztime=1000000x -parallel=2 -timeout=10m
       - name: log encoder
-        run: go test ./rpc/internal/objects/log -run=^$ -fuzz=FuzzEncodeIdempotent -fuzztime=1000000x -parallel=2 -timeout=10m
+        run: go test ./internal/ethobject/log -run=^$ -fuzz=FuzzEncodeIdempotent -fuzztime=1000000x -parallel=2 -timeout=10m
       - name: receipt encoder
-        run: go test ./rpc/internal/objects/receipt -run=^$ -fuzz=FuzzEncodeKeyStableAndIdempotent -fuzztime=1000000x -parallel=2 -timeout=10m
+        run: go test ./internal/ethobject/receipt -run=^$ -fuzz=FuzzEncodeKeyStableAndIdempotent -fuzztime=1000000x -parallel=2 -timeout=10m
       - name: transaction encoder
-        run: go test ./rpc/internal/objects/transaction -run=^$ -fuzz=FuzzEncodeIdempotent -fuzztime=1000000x -parallel=2 -timeout=10m
+        run: go test ./internal/ethobject/transaction -run=^$ -fuzz=FuzzEncodeIdempotent -fuzztime=1000000x -parallel=2 -timeout=10m
       - name: canonical wire normalizer
-        run: go test ./rpc/internal/wire -run=^$ -fuzz=FuzzNormalize -fuzztime=1000000x -parallel=2 -timeout=10m
+        run: go test ./internal/ethcodec -run=^$ -fuzz=FuzzNormalize -fuzztime=1000000x -parallel=2 -timeout=10m
       - name: archive discovered fuzz corpus
         if: always()
         uses: actions/upload-artifact@v7
@@ -237,13 +244,14 @@ jobs:
             internal/jsonsafe/testdata/fuzz/
             internal/rpcwire/testdata/fuzz/
             internal/transport/wss/testdata/fuzz/
-            rpc/internal/objects/accesslist/testdata/fuzz/
-            rpc/internal/objects/block/testdata/fuzz/
-            rpc/internal/objects/feehistory/testdata/fuzz/
-            rpc/internal/objects/log/testdata/fuzz/
-            rpc/internal/objects/receipt/testdata/fuzz/
-            rpc/internal/objects/transaction/testdata/fuzz/
-            rpc/internal/wire/testdata/fuzz/
+            internal/transport/ipc/testdata/fuzz/
+            internal/ethobject/accesslist/testdata/fuzz/
+            internal/ethobject/block/testdata/fuzz/
+            internal/ethobject/feehistory/testdata/fuzz/
+            internal/ethobject/log/testdata/fuzz/
+            internal/ethobject/receipt/testdata/fuzz/
+            internal/ethobject/transaction/testdata/fuzz/
+            internal/ethcodec/testdata/fuzz/
           if-no-files-found: ignore
           retention-days: 14
 

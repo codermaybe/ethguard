@@ -1,7 +1,5 @@
 {
   "id": "transaction-query-pending-context",
-  "sourceVersion": "981aa66d79364be8322a9c358aaf0a571cca0873",
-  "sourceCommit": "981aa66d79364be8322a9c358aaf0a571cca0873",
   "target": {
     "method": "eth_getTransactionByHash",
     "part": "result"
@@ -13,8 +11,6 @@
     "https://github.com/ethereum/execution-apis/blob/981aa66d79364be8322a9c358aaf0a571cca0873/src/schemas/transaction.yaml"
   ],
   "retireWhen": "On every upstream pin change, review the independent query schema. Remove this correction when upstream admits the supported pending inclusion context; narrow or revise the timestamp part if its source contract changes. Never apply it to embedded block transactions.",
-  "inputSchemaSHA256": "b3664c7762184533823ea8c8ea073da01c7f83a30b7a99225578af98b36e2f5e",
-  "outputSchemaSHA256": "cb10ef89a4da14f2bbf4403026ac535d6b4ce35a6fcca68d26b8b758b0841fa9",
   "patch": [
     {
       "op": "test",
@@ -119,6 +115,129 @@
           }
         ]
       }
+    }
+  ],
+  "kind": "patch",
+  "before": [
+    {
+      "pointer": "/oneOf/1/properties/blockHash",
+      "value": {
+        "pattern": "^0x[0-9a-f]{64}$",
+        "title": "block hash",
+        "type": "string"
+      }
+    },
+    {
+      "pointer": "/oneOf/1/properties/blockNumber",
+      "value": {
+        "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+        "title": "block number",
+        "type": "string"
+      }
+    },
+    {
+      "pointer": "/oneOf/1/properties/blockTimestamp",
+      "value": {
+        "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+        "title": "block timestamp",
+        "type": "string"
+      }
+    },
+    {
+      "pointer": "/oneOf/1/properties/transactionIndex",
+      "value": {
+        "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+        "title": "transaction index",
+        "type": "string"
+      }
+    },
+    {
+      "pointer": "/oneOf/1/required",
+      "value": [
+        "blockHash",
+        "blockNumber",
+        "blockTimestamp",
+        "from",
+        "hash",
+        "transactionIndex"
+      ]
+    }
+  ],
+  "after": [
+    {
+      "pointer": "/oneOf/1/properties/blockHash",
+      "value": {
+        "title": "block hash",
+        "oneOf": [
+          {
+            "type": "null"
+          },
+          {
+            "pattern": "^0x[0-9a-f]{64}$",
+            "title": "block hash",
+            "type": "string"
+          }
+        ]
+      }
+    },
+    {
+      "pointer": "/oneOf/1/properties/blockNumber",
+      "value": {
+        "title": "block number",
+        "oneOf": [
+          {
+            "type": "null"
+          },
+          {
+            "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+            "title": "block number",
+            "type": "string"
+          }
+        ]
+      }
+    },
+    {
+      "pointer": "/oneOf/1/properties/blockTimestamp",
+      "value": {
+        "title": "block timestamp",
+        "oneOf": [
+          {
+            "type": "null"
+          },
+          {
+            "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+            "title": "block timestamp",
+            "type": "string"
+          }
+        ]
+      }
+    },
+    {
+      "pointer": "/oneOf/1/properties/transactionIndex",
+      "value": {
+        "title": "transaction index",
+        "oneOf": [
+          {
+            "type": "null"
+          },
+          {
+            "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+            "title": "transaction index",
+            "type": "string"
+          }
+        ]
+      }
+    },
+    {
+      "pointer": "/oneOf/1/required",
+      "value": [
+        "blockHash",
+        "blockNumber",
+        "blockTimestamp",
+        "from",
+        "hash",
+        "transactionIndex"
+      ]
     }
   ]
 }

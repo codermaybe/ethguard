@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"math/big"
 	"strconv"
 	"sync/atomic"
@@ -31,6 +32,8 @@ import (
 // assertions live in the test files.
 
 const Version = "2.0"
+
+const paramsMemberPrefix = `,"params":`
 
 // Response-classification sentinels. They are transport-level failures, not
 // JSON-RPC protocol errors: pool classifies them as failures and never as
@@ -94,22 +97,49 @@ func EncodeRequest(id json.RawMessage, method string, params []any) ([]byte, err
 		}
 		paramsJSON = raw
 	}
-	msg := struct {
+	header := struct {
 		Version string          `json:"jsonrpc"`
 		ID      json.RawMessage `json:"id"`
 		Method  string          `json:"method"`
-		Params  json.RawMessage `json:"params,omitempty"`
 	}{
 		Version: Version,
 		ID:      append(json.RawMessage(nil), id...),
 		Method:  method,
-		Params:  paramsJSON,
 	}
-	out, err := json.Marshal(msg)
+	out, err := json.Marshal(header)
 	if err != nil {
 		return nil, fmt.Errorf("rpcwire: encode request: %w", err)
 	}
-	return out, nil
+	if paramsJSON == nil {
+		return out, nil
+	}
+	// Params were already marshaled with the same compact, HTML-safe encoding.
+	// Append that complete array without asking an outer Marshal to scan it
+	// again. Keep header marshaling after params to preserve error precedence.
+	capacity, err := requestCapacity(len(out), len(paramsJSON))
+	if err != nil {
+		return nil, err
+	}
+	request := make([]byte, 0, capacity)
+	request = append(request, out[:len(out)-1]...)
+	request = append(request, paramsMemberPrefix...)
+	request = append(request, paramsJSON...)
+	request = append(request, '}')
+	return request, nil
+}
+
+// requestCapacity checks lengths obtained from len before either addition.
+// The header's closing brace is replaced, so it already accounts for the
+// request's final brace.
+func requestCapacity(headerLen, paramsLen int) (int, error) {
+	if headerLen > math.MaxInt-len(paramsMemberPrefix) {
+		return 0, errors.New("rpcwire: encode request: length exceeds int capacity")
+	}
+	prefixLen := headerLen + len(paramsMemberPrefix)
+	if paramsLen > math.MaxInt-prefixLen {
+		return 0, errors.New("rpcwire: encode request: length exceeds int capacity")
+	}
+	return prefixLen + paramsLen, nil
 }
 
 // wireResponse mirrors the members DecodeResponse validates. json.RawMessage

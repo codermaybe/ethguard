@@ -9,17 +9,18 @@ import (
 	"strings"
 	"time"
 
+	"github.com/codermaybe/ethguard/internal/rpcengine"
+
+	"github.com/codermaybe/ethguard/ethapi"
+	"github.com/codermaybe/ethguard/internal/methods"
+	"github.com/codermaybe/ethguard/internal/pool"
+	"github.com/codermaybe/ethguard/internal/uncertain"
+	"github.com/codermaybe/ethguard/rpc"
 	ethereum "github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
-
-	"github.com/codermaybe/ethguard/ethapi"
-	"github.com/codermaybe/ethguard/internal/uncertain"
-	"github.com/codermaybe/ethguard/pool"
-	"github.com/codermaybe/ethguard/rpc"
-	"github.com/codermaybe/ethguard/rpc/methods"
 )
 
 // geth v1.17.10 uses a 20-second default for eth_sendRawTransactionSync when
@@ -45,7 +46,7 @@ func writeAnswer(source rpc.SourceRef, response *rpc.Response) rpc.SourceAnswer 
 			}
 		}
 	}
-	answer.SourceSummary = (rpc.SourceVerdict{Source: source, Method: response.Answer.Interpretation, Kind: rpc.VerdictUnusable}).Summary(*response)
+	answer.SourceSummary = (rpcengine.SourceVerdict{Source: source, Method: response.Answer.Interpretation, Kind: rpc.VerdictUnusable}).Summary(*response)
 	return answer
 }
 
@@ -110,7 +111,7 @@ func (c *Client) sendRawTransaction(ctx context.Context, rawTx []byte) (CallResu
 	}
 	hash := strings.ToLower(tx.Hash().Hex())
 
-	snap := c.corrob.Snapshot()
+	snap := c.corrob
 	members := c.pool.VotingMembers()
 	basis := len(members)
 	params := []any{hexutil.Encode(rawTx)}
@@ -167,7 +168,7 @@ func (c *Client) sendRawTransaction(ctx context.Context, rawTx []byte) (CallResu
 			}})
 		}
 	}
-	decision, err := rpc.ResolveWriteBroadcast(basis, snap, hash, answers, faults)
+	decision, err := rpcengine.ResolveWriteBroadcast(basis, snap, hash, answers, faults)
 	if collectErr != nil && decision.Adjudication.Reason == rpc.ReasonUnassessed {
 		return CallResult{WriteDecision: &decision}, fmt.Errorf("write broadcast: %w", collectErr)
 	}

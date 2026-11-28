@@ -20,7 +20,7 @@ import (
 	"github.com/codermaybe/ethguard"
 	"github.com/codermaybe/ethguard/config"
 	"github.com/codermaybe/ethguard/ethapi"
-	"github.com/codermaybe/ethguard/pool"
+	"github.com/codermaybe/ethguard/internal/pool"
 	"github.com/codermaybe/ethguard/rpc"
 	"github.com/codermaybe/ethguard/rpctest"
 )
@@ -28,7 +28,7 @@ import (
 // The full production-path benchmark for the transaction pilot: the typed
 // facade entry through the runtime, aggregator, pool fan-out, admission, and
 // typed decode, against scripted same-process sources. This complements the
-// local hook measurements in rpc/methods: it measures what one invocation
+// local hook measurements in internal/methods: it measures what one invocation
 // costs end to end, including the phases the local numbers exclude. The
 // sources are synthetic in-process nodes, so absolute times carry no provider
 // network meaning; the value is the same-harness before/after comparison and
@@ -136,7 +136,7 @@ func transactionBenchInvalid(b *testing.B, raw json.RawMessage) json.RawMessage 
 }
 
 // eligibleFailureBatch stays below the pool's eligibility-circuit threshold
-// (three consecutive failed rounds open a source's gate, pool/monitor.go):
+// (three consecutive failed rounds open a source's gate, internal/pool/monitor.go):
 // every measured batch of failed rounds finishes before the gate can close,
 // and the fleet is rebuilt outside the timer between batches, so each timed
 // round really receives its designated response combination. The gated
@@ -312,13 +312,13 @@ func BenchmarkTransactionInBlockProductionPath(b *testing.B) {
 }
 
 // eligibleFailureThresholdRounds mirrors the pool's eligibility-circuit
-// threshold (three consecutive failed rounds, pool/monitor.go): the gate
+// threshold (three consecutive failed rounds, internal/pool/monitor.go): the gate
 // benchmark's warmup crosses it, the cost benchmarks stay below it.
 const eligibleFailureThresholdRounds = 3
 
 // gatePathBatchRounds bounds one measured batch so it finishes well inside
 // the pool's eligibility cooldown (30 seconds since the last failure,
-// pool/monitor.go): after the cooldown a gated source is deliberately
+// internal/pool/monitor.go): after the cooldown a gated source is deliberately
 // re-admitted as a recovery probe, which ends the steady gated state this
 // benchmark measures. The fleet is rebuilt outside the timer between
 // batches, so every measured batch starts with a freshly opened gate and a

@@ -16,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/codermaybe/ethguard/internal/livecanary"
+	"github.com/codermaybe/ethguard/internal/diag/livecanary"
 )
 
 func commandProvenance() livecanary.Provenance {
@@ -104,7 +104,7 @@ func writeRegistrySnapshotAtURL(t *testing.T, dir string, raw []byte, registryUR
 
 func TestRunManifestWritesArtifactAndManifest(t *testing.T) {
 	dir := t.TempDir()
-	raw, err := os.ReadFile(filepath.Join("..", "..", "internal", "livecanary", "testdata", "registry.json"))
+	raw, err := os.ReadFile(filepath.Join("..", "..", "internal", "diag", "livecanary", "testdata", "registry.json"))
 	if err != nil {
 		t.Fatalf("read fixture: %v", err)
 	}
@@ -125,6 +125,9 @@ func TestRunManifestWritesArtifactAndManifest(t *testing.T) {
 	}
 	if manifest.Registry.Status != "ok" {
 		t.Errorf("registry status = %q", manifest.Registry.Status)
+	}
+	if manifest.HTTPAdapter != livecanary.HTTPAdapterNative {
+		t.Fatalf("manifest command recorded http_adapter=%q, want native", manifest.HTTPAdapter)
 	}
 	if manifest.Registry.Redaction != livecanary.RedactionURLCredentials {
 		t.Errorf("redaction = %q", manifest.Registry.Redaction)
@@ -300,6 +303,9 @@ func TestRunFetchFixedMembership(t *testing.T) {
 	}
 	if manifest.Registry.Status != "ok" || manifest.Selection == nil || len(manifest.Selection.Selected) != 3 {
 		t.Errorf("unexpected manifest: status=%s selection=%+v", manifest.Registry.Status, manifest.Selection)
+	}
+	if manifest.HTTPAdapter != livecanary.HTTPAdapterNative {
+		t.Fatalf("fetch command recorded http_adapter=%q, want native", manifest.HTTPAdapter)
 	}
 	if _, err := os.Stat(filepath.Join(dir, livecanary.ArtifactName)); err != nil {
 		t.Errorf("artifact: %v", err)
@@ -489,6 +495,9 @@ func TestRunLiveWritesManifestAndReport(t *testing.T) {
 		body:   fetchRegistryBody("https://a.example", "https://b.example", "https://c.example"),
 	}, commandProvenance())
 	deps.runPlan = func(_ context.Context, input livecanary.RunInput) (livecanary.Report, error) {
+		if input.Manifest.HTTPAdapter != livecanary.HTTPAdapterNative {
+			t.Fatalf("new run adapter provenance = %q, want native", input.Manifest.HTTPAdapter)
+		}
 		if input.Membership != livecanary.MembershipFixed {
 			t.Fatalf("membership=%s, want fixed", input.Membership)
 		}
@@ -723,13 +732,18 @@ func TestRunRerunWritesReportFromManifest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read manifest example: %v", err)
 	}
-	manifestPath := filepath.Join(dir, "manifest.json")
-	if err := os.WriteFile(manifestPath, manifestData, 0o644); err != nil {
-		t.Fatalf("write manifest: %v", err)
-	}
 	manifest, err := livecanary.ParseManifest(manifestData)
 	if err != nil {
 		t.Fatalf("ParseManifest: %v", err)
+	}
+	manifest.HTTPAdapter = livecanary.HTTPAdapterNative
+	manifestData, err = manifest.Marshal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifestPath := filepath.Join(dir, "manifest.json")
+	if err := os.WriteFile(manifestPath, manifestData, 0o644); err != nil {
+		t.Fatalf("write manifest: %v", err)
 	}
 	deps := testDependencies(commandProvenance())
 	deps.rerunPlan = func(_ context.Context, bytes []byte) (livecanary.Report, error) {
@@ -763,6 +777,86 @@ func TestRunRerunWritesReportFromManifest(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, livecanary.ManifestArtifactName)); err != nil {
 		t.Fatalf("rerun must leave the input manifest in place: %v", err)
+	}
+}
+
+func TestRerunCommandsCheckProvenanceWithoutChangingEvidence(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		adapter    json.RawMessage
+		executable bool
+	}{
+		{name: "missing"},
+		{name: "empty", adapter: json.RawMessage(`""`)},
+		{name: "blank", adapter: json.RawMessage(`" \t\n "`)},
+		{name: "null", adapter: json.RawMessage(`null`)},
+		{name: "historical", adapter: json.RawMessage(`"geth"`)},
+		{name: "normalized historical", adapter: json.RawMessage(`" \tGeTh\u2003 "`)},
+		{name: "unknown", adapter: json.RawMessage(`"other"`)},
+		{name: "wrong type", adapter: json.RawMessage(`42`)},
+		{name: "native", adapter: json.RawMessage(`"native"`), executable: true},
+		{name: "normalized native", adapter: json.RawMessage(`" \tNaTiVe\u2003 "`), executable: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var document map[string]json.RawMessage
+			if err := json.Unmarshal(mustReadFile(t, filepath.Join("..", "..", "docs", "design", "live-canary", "manifest.example.json")), &document); err != nil {
+				t.Fatal(err)
+			}
+			delete(document, "http_adapter")
+			if test.adapter != nil {
+				document["http_adapter"] = test.adapter
+			}
+			manifestBytes, err := json.MarshalIndent(document, "", "  ")
+			if err != nil {
+				t.Fatal(err)
+			}
+			manifestBytes = append(manifestBytes, '\n')
+			digest := livecanary.ManifestSHA256(manifestBytes)
+			for _, command := range []string{"check-rerun", "rerun"} {
+				t.Run(command, func(t *testing.T) {
+					dir := t.TempDir()
+					manifestPath := filepath.Join(dir, "manifest.json")
+					if err := os.WriteFile(manifestPath, manifestBytes, 0o644); err != nil {
+						t.Fatal(err)
+					}
+					calls := 0
+					executed := errors.New("execution reached")
+					deps := dependencies{rerunPlan: func(_ context.Context, data []byte) (livecanary.Report, error) {
+						calls++
+						if !bytes.Equal(data, manifestBytes) {
+							t.Fatal("rerun changed manifest bytes")
+						}
+						return livecanary.Report{}, executed
+					}}
+					args := []string{command, "-manifest", manifestPath}
+					if command == "rerun" {
+						args = append(args, "-out", filepath.Join(dir, "report.json"))
+					}
+					var stdout bytes.Buffer
+					err := runWith(args, &stdout, deps)
+					wantCalls := 0
+					if test.executable && command == "rerun" {
+						wantCalls = 1
+						if !errors.Is(err, executed) {
+							t.Fatalf("native rerun did not reach executor: %v", err)
+						}
+					} else if test.executable {
+						if err != nil || !strings.Contains(stdout.String(), "manifest_sha256="+digest) {
+							t.Fatalf("offline check error=%v, output=%q", err, stdout.String())
+						}
+					} else if err == nil {
+						t.Fatal("historical or unsupported provenance was allowed to execute")
+					}
+					if calls != wantCalls {
+						t.Fatalf("executor calls=%d, want %d", calls, wantCalls)
+					}
+					got := mustReadFile(t, manifestPath)
+					if !bytes.Equal(got, manifestBytes) || livecanary.ManifestSHA256(got) != digest {
+						t.Fatal("execution check changed historical evidence")
+					}
+				})
+			}
+		})
 	}
 }
 

@@ -397,19 +397,27 @@ func writeFrame(w io.Writer, side endpointSide, opcode byte, payload []byte) err
 			buf := make([]byte, 0, n+len(masked))
 			buf = append(buf, header[:n]...)
 			buf = append(buf, masked...)
-			_, err := w.Write(buf)
+			return writeFramePart(w, buf)
+		}
+		if err := writeFramePart(w, header[:n]); err != nil {
 			return err
 		}
-		if _, err := w.Write(header[:n]); err != nil {
-			return err
-		}
-		_, err := w.Write(masked)
+		return writeFramePart(w, masked)
+	}
+	if err := writeFramePart(w, header[:n]); err != nil {
 		return err
 	}
-	if _, err := w.Write(header[:n]); err != nil {
-		return err
+	return writeFramePart(w, payload)
+}
+
+func writeFramePart(w io.Writer, p []byte) error {
+	if len(p) == 0 {
+		return nil
 	}
-	_, err := w.Write(payload)
+	n, err := w.Write(p)
+	if err == nil && n != len(p) {
+		return io.ErrShortWrite
+	}
 	return err
 }
 

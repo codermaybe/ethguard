@@ -11,7 +11,7 @@ import (
 func TestCollectorMetadataOwnsBoundedStorage(t *testing.T) {
 	backing := strings.Repeat("x", 8<<20)
 	for _, input := range []string{backing, backing[100:117]} {
-		c := NewCollector(testConfig(DefaultBudget))
+		c := NewCollector(testConfig(1 << 20))
 		c.Record(input, input, rpc.SourceRef{Name: input, URL: input, ID: input}, nil, input)
 		s := c.Snapshot()
 		if len(s.Raw) != 1 {
@@ -69,7 +69,7 @@ func TestCollectorFieldExpansionAllocationsAreBounded(t *testing.T) {
 	}{
 		{"exhausted", 1, 4 << 10},
 		{"small remainder", maxItemBytes + 8, 128 << 10},
-		{"ample remainder", DefaultBudget, 128 << 10},
+		{"ample remainder", 1 << 20, 128 << 10},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			bench := testing.Benchmark(func(b *testing.B) {
@@ -88,7 +88,7 @@ func TestCollectorFieldExpansionAllocationsAreBounded(t *testing.T) {
 }
 
 func TestCollectorExpandsOnlyCompleteRetainedMembers(t *testing.T) {
-	c := NewCollector(testConfig(DefaultBudget))
+	c := NewCollector(testConfig(1 << 20))
 	payload := []byte(`{"ok":1,"cut":"` + strings.Repeat("x", 2*maxItemBytes) + `","later":2}`)
 	c.Record("", "", rpc.SourceRef{}, payload, "")
 	s := c.Snapshot()
@@ -98,7 +98,7 @@ func TestCollectorExpandsOnlyCompleteRetainedMembers(t *testing.T) {
 	if len(s.Raw[0].Value) != maxItemBytes || !s.Truncated {
 		t.Fatal("raw prefix or truncation evidence missing")
 	}
-	numeric := NewCollector(testConfig(DefaultBudget))
+	numeric := NewCollector(testConfig(1 << 20))
 	numeric.Record("", "", rpc.SourceRef{}, []byte(`{"ok":1,"cut":`+strings.Repeat("1", 2*maxItemBytes)+`}`), "")
 	if fields := numeric.Snapshot().Fields; len(fields) != 1 || fields[0].Path != "ok" {
 		t.Fatalf("truncated number was published as a complete field: %+v", fields)
@@ -106,13 +106,13 @@ func TestCollectorExpandsOnlyCompleteRetainedMembers(t *testing.T) {
 	// Preserve escaped keys and UTF-8 at the text cap, without retaining the
 	// temporary decoded key's larger backing storage.
 	key := strings.Repeat(`\u0061`, maxMetadataBytes-1) + `\u20ac`
-	unicode := NewCollector(testConfig(DefaultBudget))
+	unicode := NewCollector(testConfig(1 << 20))
 	unicode.Record("", "", rpc.SourceRef{}, []byte(`{"`+key+`":1}`), "")
 	u := unicode.Snapshot()
 	if len(u.Fields) != 1 || u.Fields[0].Path != strings.Repeat("a", maxMetadataBytes-1) || !u.Truncated {
 		t.Fatalf("UTF-8 path truncation: fields=%d truncated=%v", len(u.Fields), u.Truncated)
 	}
-	bad := NewCollector(testConfig(DefaultBudget))
+	bad := NewCollector(testConfig(1 << 20))
 	bad.Record("", "", rpc.SourceRef{}, []byte(`{"ok":1,"bad":[},"after":2}`), "")
 	if fields := bad.Snapshot().Fields; len(fields) != 1 || fields[0].Path != "ok" {
 		t.Fatalf("malformed nested member produced fields: %+v", fields)

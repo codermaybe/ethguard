@@ -160,25 +160,40 @@ func (q *EventQueue) next(ctx context.Context, destination MemoryBudget) (Event,
 		q.mu.Lock()
 		if q.first != nil {
 			item := q.first
-			var retained func()
-			if destination != nil {
-				var err error
-				retained, err = destination.Reserve(transferEventBytes(item.event))
-				if err != nil {
-					audit := item.event.Audit
-					item.event.Audit = AuditRange{}
-					q.mu.Unlock()
-					return Event{}, sync.OnceFunc(audit.releaseOwned), &TransferError{Cause: err, Audit: audit}
-				}
-			}
 			q.first = item.next
 			if q.first == nil {
 				q.last = nil
 			}
-
+			item.next = nil
+			q.mu.Unlock()
+			var retained func()
+			var reserveErr error
+			if destination != nil {
+				retained, reserveErr = destination.Reserve(transferEventBytes(item.event))
+			}
+			q.mu.Lock()
+			aborted := q.closed && !q.drainTerminal
+			if reserveErr != nil && !aborted {
+				item.next = q.first
+				q.first = item
+				if q.last == nil {
+					q.last = item
+				}
+				audit := item.event.Audit
+				item.event.Audit = AuditRange{}
+				q.mu.Unlock()
+				return Event{}, sync.OnceFunc(audit.releaseOwned), &TransferError{Cause: reserveErr, Audit: audit}
+			}
 			q.mu.Unlock()
 			item.release()
 			item.pathRelease()
+			if aborted {
+				q.dropEvent(item.event)
+				if retained != nil {
+					retained()
+				}
+				return Event{}, nil, ErrClosed
+			}
 			if item.event.Delta != nil {
 				for i := range item.event.Delta.Appended {
 					d := &item.event.Delta.Appended[i]
@@ -193,41 +208,55 @@ func (q *EventQueue) next(ctx context.Context, destination MemoryBudget) (Event,
 			item.event.Header = PayloadLease{}
 			item.event.Evidence = PayloadLease{}
 			item.event.Audit.releaseOwned()
-			item.next = nil
 			return item.event, retained, nil
 		}
+
 		if q.closed {
 			err := q.terminal
 			if q.drainTerminal && !q.errorReturned {
+				q.terminal = nil
+				q.mu.Unlock()
 				var retained func()
+				var reserveErr error
 				if destination != nil {
 					size := uint64(unsafe.Sizeof(TerminalError{}))
 					var terminal *TerminalError
 					if errors.As(err, &terminal) {
 						size += transferAuditBytes(terminal.Audit)
 					}
-					var reserveErr error
 					retained, reserveErr = destination.Reserve(size)
-					if reserveErr != nil {
-						var audit AuditRange
-						if errors.As(err, &terminal) {
-							audit = terminal.Audit
-							terminal.Audit = AuditRange{}
-						}
-						q.mu.Unlock()
-						return Event{}, sync.OnceFunc(audit.releaseOwned), &TransferError{Cause: errors.Join(reserveErr, err), Audit: audit}
-					}
 				}
-				q.errorReturned = true
-				q.doneLocked()
-				q.terminal = nil
-				releaseTerminalOwned(err)
+				q.mu.Lock()
+				aborted := !q.drainTerminal
+				if reserveErr != nil && !aborted {
+					var audit AuditRange
+					var terminal *TerminalError
+					if errors.As(err, &terminal) {
+						audit = terminal.Audit
+						terminal.Audit = AuditRange{}
+					}
+					q.terminal = err
+					q.mu.Unlock()
+					return Event{}, sync.OnceFunc(audit.releaseOwned), &TransferError{Cause: errors.Join(reserveErr, err), Audit: audit}
+				}
+				if !aborted {
+					q.errorReturned = true
+					q.doneLocked()
+				}
 				q.mu.Unlock()
+				releaseTerminalOwned(err)
+				if aborted {
+					if retained != nil {
+						retained()
+					}
+					return Event{}, nil, ErrClosed
+				}
 				if err == nil {
 					err = ErrClosed
 				}
 				return Event{}, retained, err
 			}
+
 			drain := q.drainTerminal
 			q.mu.Unlock()
 			if drain {
@@ -250,9 +279,12 @@ func (q *EventQueue) next(ctx context.Context, destination MemoryBudget) (Event,
 
 func transferEventBytes(e Event) uint64 {
 	n := eventQueueBytes(e) + deltaBytes(e.Delta) + e.Header.Bytes + e.Evidence.Bytes + transferAuditBytes(e.Audit)
+	for _, w := range e.Evaluation.Witnesses {
+		n = saturatingAdd(n, uint64(len(w.Session.SourceID)))
+	}
 	if e.Delta != nil {
 		for _, entry := range e.Delta.Appended {
-			n += entry.Header.Bytes + entry.Evidence.Bytes
+			n = saturatingAdd(n, saturatingAdd(entry.Header.Bytes+entry.Evidence.Bytes, uint64(len(entry.ObjectSupplier.Session.SourceID))))
 		}
 	}
 	return n
@@ -261,7 +293,7 @@ func transferEventBytes(e Event) uint64 {
 func transferAuditBytes(a AuditRange) uint64 {
 	var size uint64
 	for entry := a.first; entry != nil && entry.record.Sequence <= a.Last; entry = entry.next {
-		size += uint64(unsafe.Sizeof(auditEntry{}))
+		size = saturatingAdd(size, uint64(unsafe.Sizeof(auditEntry{}))+uint64(len(entry.record.Session.SourceID)))
 	}
 	return size
 }

@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/codermaybe/ethguard/internal/methods"
 	"github.com/codermaybe/ethguard/rpc"
-	"github.com/codermaybe/ethguard/rpc/methods"
 )
 
 // T09.2 protected-field mutations are grouped by class. Each row names the

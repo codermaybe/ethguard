@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/codermaybe/ethguard/internal/rpcengine"
 	"github.com/codermaybe/ethguard/observe"
 	"github.com/codermaybe/ethguard/rpc"
 )
@@ -34,7 +35,7 @@ func Finalized(ctx context.Context, reader HeadReader, codec HeadCodec, maxLag u
 	ref.Origin, ref.ObservedAt, ref.Status = "reported-finalized", started, rpc.Unknown
 	var attempts []observe.SourceEvent
 	var observations []rpc.Observation
-	var resolved *rpc.Outcome
+	var resolved *rpcengine.Outcome
 
 	defer func() {
 		if rec == nil || rec == observe.Nop {
@@ -47,7 +48,7 @@ func Finalized(ctx context.Context, reader HeadReader, codec HeadCodec, maxLag u
 		rec.RecordDecision(observe.DecisionEvent{Method: "anchor", Status: status, Conflict: errors.Is(resultErr, rpc.ErrConflict), Faults: len(ref.Faults), Duration: time.Since(started), Attempts: attempts})
 	}()
 	defer func() {
-		outcome := rpc.UnassessedOutcome(observations)
+		outcome := rpcengine.UnassessedOutcome(observations)
 		if resolved != nil {
 			outcome = *resolved
 		} else {
@@ -274,15 +275,15 @@ func selectCandidate(emissions []HeadObservation, views []HeadView, maxLag uint6
 // height, detecting a reorg by hash mismatch against the established
 // candidate set. It returns the resolve policy the caller's final vote runs
 // on and whether any confirmation contradicted the candidate hash.
-func confirmSelection(ctx context.Context, reader HeadReader, codec HeadCodec, sel selection, quorum int, mode rpc.CorroborationMode, timeout time.Duration, ref *rpc.ReferenceEvidence, attempts *[]observe.SourceEvent) (rpc.Policy, bool) {
-	var opts []rpc.StrictOption
+func confirmSelection(ctx context.Context, reader HeadReader, codec HeadCodec, sel selection, quorum int, mode rpc.CorroborationMode, timeout time.Duration, ref *rpc.ReferenceEvidence, attempts *[]observe.SourceEvent) (rpcengine.Resolver, bool) {
+	var opts []rpcengine.StrictOption
 	if quorum > 0 {
-		opts = append(opts, rpc.WithQuorum(quorum))
+		opts = append(opts, rpcengine.WithQuorum(quorum))
 	}
 	if mode == rpc.CorroborationUnanimity {
-		opts = append(opts, rpc.WithUnanimity())
+		opts = append(opts, rpcengine.WithUnanimity())
 	}
-	policy := rpc.Strict(codec.Normalize, opts...)
+	policy := rpcengine.Strict(codec.Normalize, opts...)
 	support := 0
 	for _, item := range sel.observations {
 		if item.Response.CandidateErr(false) == nil {

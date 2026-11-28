@@ -3,7 +3,7 @@ package ethguard
 import (
 	"errors"
 
-	"github.com/codermaybe/ethguard/pool"
+	"github.com/codermaybe/ethguard/internal/pool"
 	"github.com/codermaybe/ethguard/rpc"
 )
 

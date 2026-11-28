@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"math/big"
 	"strings"
 )
 
@@ -13,15 +12,15 @@ import (
 // encoders embed these strings straight into their canonical structs. It is
 // the string form of EncodeQuantity's JSON bytes.
 func CanonicalQuantity(value json.RawMessage) (string, error) {
-	decimal, err := NormalizeWireQuantity(value)
+	text, err := decodedScalarString(value, "hex quantity")
 	if err != nil {
 		return "", err
 	}
-	number, ok := new(big.Int).SetString(decimal, 10)
-	if !ok {
-		return "", fmt.Errorf("invalid quantity %q", decimal)
+	text = foldWireHexText(text)
+	if !IsCanonicalQuantity(text) {
+		return "", fmt.Errorf("hex quantity: invalid canonical quantity %q", text)
 	}
-	return "0x" + number.Text(16), nil
+	return text, nil
 }
 
 // MarshalNoEscape encodes one canonical object: compact JSON, HTML escaping

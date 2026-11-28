@@ -1,15 +1,12 @@
 // Package http implements EthGuard's native HTTP JSON-RPC transport adapter.
 //
-// It speaks the EthGuard native contract (docs/design/http-transport-
-// differential.md, "EthGuard 自有 HTTP contract") on top of net/http and
-// internal/rpcwire, with no go-ethereum rpc/ethclient dependency: strict
-// response validation, project-owned error capabilities, bounded reads with
-// context-first precedence, idempotent Close that rejects new calls, and no
-// automatic retry or replay.
+// It implements the HTTP contract in docs/design/transport-contract.md on top
+// of net/http and internal/rpcwire: strict response validation, project-owned
+// error capabilities, bounded reads with context-first precedence, idempotent
+// Close that rejects new calls, and no automatic JSON-RPC retry or replay.
 //
-// The package coexists with the Geth compatibility adapter in
-// internal/transport; the default production dialer is unchanged until the
-// maintainer approves the switch.
+// internal/runtime selects this adapter for HTTP sources. It shares the wire
+// codec with the native WSS adapter and imports no go-ethereum rpc or ethclient.
 package http
 
 import (
@@ -30,8 +27,7 @@ import (
 	"github.com/codermaybe/ethguard/rpc"
 )
 
-// DefaultBodyLimit bounds one response body read. It matches the audited
-// capture limit of the Geth compatibility adapter (class A).
+// DefaultBodyLimit bounds one response body read using the shared payload limit.
 const DefaultBodyLimit = limits.MaxBodyBytes
 
 // maxStatusBody caps how much of a non-2xx body is retained in the error
@@ -40,11 +36,9 @@ const DefaultBodyLimit = limits.MaxBodyBytes
 // consume unbounded memory.
 const maxStatusBody = 4 << 10
 
-// ErrTransportClosed is returned for calls on a closed transport. Unlike the
-// Geth baseline (whose HTTP Close is a no-op and leaves the adapter usable),
-// a native transport blocks new calls once closed (EthGuard contract,
-// lifecycle). It wraps the neutral lifecycle sentinel, so core packages
-// classify closed-transport calls without importing this adapter.
+// ErrTransportClosed is returned for calls on a closed transport. It wraps
+// the neutral lifecycle sentinel so core packages can classify the failure
+// without importing this adapter.
 var ErrTransportClosed = fmt.Errorf("http: transport closed: %w", transport.ErrConnectionClosed)
 
 // Dialer dials native HTTP JSON-RPC transports for http and https URLs.
@@ -53,13 +47,11 @@ type Dialer struct {
 	BodyLimit int64
 }
 
-// NewDialer returns the native HTTP adapter factory. It is intentionally not
-// wired into the default production path: the switch is a separate,
-// maintainer-approved change.
+// NewDialer returns the native HTTP adapter factory used by internal/runtime.
 func NewDialer() Dialer { return Dialer{} }
 
 // DialContext implements transport.Dialer. Dialing performs no network I/O:
-// HTTP requests are issued per call, mirroring the audited Geth behavior.
+// HTTP requests are issued per call and reuse the transport's connection pool.
 func (d Dialer) DialContext(ctx context.Context, rawURL string) (transport.Transport, error) {
 	endpoint, err := url.Parse(rawURL)
 	if err != nil {

@@ -5,8 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"testing"
 )
 
@@ -14,35 +12,7 @@ import (
 // Reconstructing their historical envelopes checks their independently recorded
 // digests without keeping a second active copy of any official schema.
 func TestUnifiedLayoutPreservesHistoricalSourceSnapshots(t *testing.T) {
-	read := func(name string) []byte {
-		t.Helper()
-		raw, err := os.ReadFile(filepath.Join("..", name))
-		if err != nil {
-			t.Fatal(err)
-		}
-		// Reconstruct the historical 24-result snapshot before checking the
-		// immutable layout migration record. The Header extension has its own
-		// independent transition record and source checks.
-		if name == "methods.json" {
-			var bundle struct {
-				Version string                     `json:"version"`
-				Results map[string]json.RawMessage `json:"results"`
-			}
-			if err := json.Unmarshal(raw, &bundle); err != nil {
-				t.Fatal(err)
-			}
-			delete(bundle.Results, "eth_getHeaderByHash")
-			delete(bundle.Results, "eth_getHeaderByNumber")
-			var buf bytes.Buffer
-			encoder := json.NewEncoder(&buf)
-			encoder.SetIndent("", " ")
-			if err := encoder.Encode(bundle); err != nil {
-				t.Fatal(err)
-			}
-			raw = buf.Bytes()
-		}
-		return raw
-	}
+	read := func(name string) []byte { return historicalRead(t, name, false) }
 	var migration struct {
 		Kind                      string
 		BeforeVersion             string
@@ -90,20 +60,8 @@ func TestUnifiedLayoutPreservesHistoricalSourceSnapshots(t *testing.T) {
 	if err := json.Unmarshal(read("methods.json"), &methods); err != nil {
 		t.Fatal(err)
 	}
-	list, err := MethodsFromList(read("methods.list"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(methods.Results) != 24 || len(list) != len(methods.Results)+2 || methods.Version != migration.AfterVersion {
-		t.Fatal("unified result policy or source identity differs")
-	}
-	for _, name := range list {
-		if name == "eth_getHeaderByHash" || name == "eth_getHeaderByNumber" {
-			continue
-		}
-		if len(methods.Results[name]) == 0 {
-			t.Fatalf("policy method %s has no result schema", name)
-		}
+	if len(methods.Results) != 24 || methods.Version != migration.AfterVersion {
+		t.Fatal("historical unified source changed")
 	}
 	simulateResult := methods.Results["eth_simulateV1"]
 	delete(methods.Results, "eth_simulateV1")

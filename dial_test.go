@@ -34,14 +34,19 @@ func dialFleet(t *testing.T, count int) (*Client, []*rpctest.Node) {
 	return client, nodes
 }
 
-func TestDialRequiresTwoDistinctEndpoints(t *testing.T) {
-	if _, err := Dial("https://a.example"); err == nil || !strings.Contains(err.Error(), "DialUncorroborated") {
-		t.Fatalf("single-endpoint dial must fail with the explicit-entry hint, got %v", err)
+func TestDialRequiresDistinctEndpoints(t *testing.T) {
+	client, err := Dial("https://a.example")
+	if err != nil {
+		t.Fatalf("single endpoint: %v", err)
 	}
-	if _, err := Dial(); err == nil || !strings.Contains(err.Error(), "at least two distinct endpoints") {
+	t.Cleanup(client.Close)
+	if client.Mode() != rpc.CorroborationForwarded {
+		t.Fatalf("single mode = %v", client.Mode())
+	}
+	if _, err := Dial(); err == nil || !strings.Contains(err.Error(), "at least one endpoint") {
 		t.Fatalf("empty dial must fail, got %v", err)
 	}
-	_, err := Dial("https://a.example", "https://a.example")
+	_, err = Dial("https://a.example", "https://a.example")
 	if err == nil || !strings.Contains(err.Error(), "duplicates an earlier entry") {
 		t.Fatalf("duplicate endpoints must fail, got %v", err)
 	}
@@ -88,10 +93,10 @@ func TestDialDoesNotImplicitlyPinChainID(t *testing.T) {
 	}
 }
 
-func TestDialUncorroboratedIsExplicitForwardedMode(t *testing.T) {
+func TestDialSingleSourceIsForwardedMode(t *testing.T) {
 	node := rpctest.NewNode(1)
 	t.Cleanup(node.Close)
-	client, err := DialUncorroborated(node.URL())
+	client, err := Dial(node.URL())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -233,12 +238,12 @@ func TestNewRejectsNormalizedDuplicateUpstreams(t *testing.T) {
 	}
 }
 
-// TestDialUncorroboratedPassesOptions pins the option passthrough on the
-// explicit single-source entry: the chain pin rides the option, not the URL.
-func TestDialUncorroboratedPassesOptions(t *testing.T) {
+// TestOpenPassesOptions pins the option passthrough on the
+// endpoint-list option entry: the chain pin rides the option, not the URL.
+func TestOpenPassesOptions(t *testing.T) {
 	node := rpctest.NewNode(1)
 	t.Cleanup(node.Close)
-	client, err := DialUncorroborated(node.URL(), WithChainID(1))
+	client, err := Open([]string{node.URL()}, WithChainID(1))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -249,11 +254,11 @@ func TestDialUncorroboratedPassesOptions(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if id, _, err := client.ChainID(ctx); err != nil || id.Int64() != 1 {
-		t.Fatalf("WithChainID must apply through DialUncorroborated, got id=%v err=%v", id, err)
+		t.Fatalf("WithChainID must apply through Open, got id=%v err=%v", id, err)
 	}
 
 	// A foreign pin still fails the read on the single source.
-	mismatched, err := DialUncorroborated(node.URL(), WithChainID(999))
+	mismatched, err := Open([]string{node.URL()}, WithChainID(999))
 	if err != nil {
 		t.Fatal(err)
 	}

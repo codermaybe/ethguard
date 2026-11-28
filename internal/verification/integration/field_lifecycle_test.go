@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/codermaybe/ethguard/internal/methods"
+	"github.com/codermaybe/ethguard/internal/projection"
 	"github.com/codermaybe/ethguard/rpc"
-	"github.com/codermaybe/ethguard/rpc/methods"
-	"github.com/codermaybe/ethguard/rpc/projection"
 )
 
 // T09.2 locks the lifecycle of every protected field: representation
@@ -72,10 +72,7 @@ type t09FieldRow struct {
 	// schemaOmitted lists nested official paths the encoder deliberately drops
 	// even though their top-level object is protected.
 	schemaOmitted []string
-	// noSchema marks methods with no pinned execution-apis result schema; the
-	// coverage test rejects any other missing schema.
-	noSchema  bool
-	projector bool
+	projector     bool
 	// nullOmitted lists protected members whose source JSON null folds to
 	// omission (the registered geth unset-pointer fold for the post-fork
 	// optional header members), while other protected nulls keep their
@@ -636,7 +633,6 @@ func t09FieldRows(t *testing.T) []t09FieldRow {
 			decode:         t09DecodeBig,
 			typed:          t09TypedTransactionCount,
 			resolution:     t09Strict,
-			noSchema:       true,
 			protected:      []string{"$"},
 			mutationExpect: t09MutationStrict,
 			mutationReject: 1,
@@ -651,7 +647,6 @@ func t09FieldRows(t *testing.T) []t09FieldRow {
 			decode:         t09DecodeQuantity,
 			typed:          t09TypedPendingTransactionCount,
 			resolution:     t09Local,
-			noSchema:       true,
 			protected:      []string{"$"},
 			mutationExpect: t09MutationLocal,
 			mutationReject: 1,
@@ -680,7 +675,7 @@ func t09FieldRows(t *testing.T) []t09FieldRow {
 			decode:         t09DecodeTransaction,
 			typed:          t09TypedTransactionInBlock,
 			resolution:     t09Strict,
-			noSchema:       true,
+			schema:         t09TransactionSchemaPaths,
 			protected:      txProtected,
 			outside:        []string{"vendor"},
 			projector:      true,
@@ -845,7 +840,6 @@ func t09FieldRows(t *testing.T) []t09FieldRow {
 			decode:         t09DecodeQuantity,
 			typed:          t09TypedPeerCount,
 			resolution:     t09Local,
-			noSchema:       true,
 			protected:      []string{"$"},
 			mutationExpect: t09MutationLocal,
 		},
@@ -884,7 +878,7 @@ func t09FieldRows(t *testing.T) []t09FieldRow {
 			decode:         t09DecodeBool,
 			typed:          t09TypedListening,
 			resolution:     t09Local,
-			noSchema:       true,
+			protected:      []string{"$"},
 			whole:          true,
 			mutationExpect: t09MutationLocal,
 			notes:          "upstream-local whole answer: no cross-source protected-field admission; typed boundary test covers wrong-typed fields",
@@ -958,13 +952,7 @@ func assertSchemaFieldsDeclared(t *testing.T, row t09FieldRow) {
 	t.Helper()
 	fields, err := projection.ExecutionAPIStandardFields(row.method)
 	if err != nil {
-		if row.noSchema {
-			return
-		}
 		t.Fatalf("%s: schema fields: %v", row.method, err)
-	}
-	if row.noSchema {
-		t.Fatalf("%s: row declares noSchema but a pinned result schema exists", row.method)
 	}
 
 	official := make(map[string]bool, len(fields))

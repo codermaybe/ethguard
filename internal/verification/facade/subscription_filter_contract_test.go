@@ -12,8 +12,8 @@ import (
 
 	"github.com/codermaybe/ethguard"
 	"github.com/codermaybe/ethguard/ethapi"
+	"github.com/codermaybe/ethguard/internal/methods"
 	"github.com/codermaybe/ethguard/rpc"
-	"github.com/codermaybe/ethguard/rpc/methods"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -44,7 +44,7 @@ func TestSubscribeTransactionReceiptsRejectsInvalidFilterBeforeEstablishing(t *t
 				var client *ethguard.Client
 				if single {
 					var err error
-					client, err = ethguard.DialUncorroborated(peers[0].endpoint)
+					client, err = ethguard.Dial(peers[0].endpoint)
 					if err != nil {
 						t.Fatal(err)
 					}
@@ -96,7 +96,7 @@ func TestSubscribeTransactionReceiptsPublicEntrypointsFollowHeadAndFreezeFilter(
 					var client *ethguard.Client
 					if single {
 						var err error
-						client, err = ethguard.DialUncorroborated(peers[0].endpoint)
+						client, err = ethguard.Dial(peers[0].endpoint)
 						if err != nil {
 							t.Fatal(err)
 						}
@@ -543,7 +543,7 @@ func TestSubscribeFilterLogsPublicEntrypointsProveNonemptyBlock(t *testing.T) {
 			var client *ethguard.Client
 			if tc.single {
 				var err error
-				client, err = ethguard.DialUncorroborated(a.endpoint)
+				client, err = ethguard.Dial(a.endpoint)
 				if err != nil {
 					t.Fatal(err)
 				}

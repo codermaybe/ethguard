@@ -42,32 +42,9 @@ func TestBuildRejectsMissingSchemaAndDuplicateMethod(t *testing.T) {
 	}
 }
 
-func TestMethodsFromBundleIsSorted(t *testing.T) {
-	methods, err := MethodsFromBundle([]byte(`{"results":{"z":{},"a":{}}}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Join(methods, ",") != "a,z" {
-		t.Fatalf("methods = %#v", methods)
-	}
-}
-
-func TestMethodsFromListIgnoresCommentsAndRejectsDuplicates(t *testing.T) {
-	methods, err := MethodsFromList([]byte("# policy\nz\n\na\n"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Join(methods, ",") != "a,z" {
-		t.Fatalf("methods = %#v", methods)
-	}
-	if _, err := MethodsFromList([]byte("eth_x\neth_x\n")); err == nil {
-		t.Fatal("duplicate method accepted")
-	}
-}
-
 func TestBuildRequestsPreservesDescriptorsAndOrdering(t *testing.T) {
 	const source = `{"methods":[{"name":"debug_trace","params":[]},{"name":"eth_z","params":[{"name":"query","required":false,"summary":"keep descriptor metadata","schema":{"type":"object","properties":{"value":{"type":"number","minimum":0.30000000000000001}}}},{"name":"block","required":true,"schema":{"type":"string"}}]},{"name":"net_version","params":[]},{"name":"eth_a","params":[]}]}`
-	raw, err := BuildRequests([]byte(source), "pin")
+	raw, err := BuildRequests([]byte(source), "pin", "eth_", "net_")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,13 +85,13 @@ func TestBuildRequestsPreservesDescriptorsAndOrdering(t *testing.T) {
 func TestBuildRequestsRejectsAmbiguousOrMissingSource(t *testing.T) {
 	for _, tc := range []struct{ name, source, version, want string }{
 		{"version", `{}`, "", "version is required"},
-		{"inventory", `{"methods":[{"name":"debug_x","params":[]}]}`, "pin", "no Ethereum request schemas"},
+		{"inventory", `{"methods":[{"name":"debug_x","params":[]}]}`, "pin", "no selected request schemas"},
 		{"missing", `{"methods":[{"name":"eth_x"}]}`, "pin", `method "eth_x" has no params descriptor`},
 		{"null", `{"methods":[{"name":"eth_x","params":null}]}`, "pin", `method "eth_x" has no params descriptor`},
 		{"duplicate", `{"methods":[{"name":"eth_x","params":[]},{"name":"eth_x","params":[]}]}`, "pin", `duplicate method "eth_x"`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := BuildRequests([]byte(tc.source), tc.version)
+			_, err := BuildRequests([]byte(tc.source), tc.version, "eth_", "net_")
 			if err == nil || err.Error() != tc.want {
 				t.Fatalf("error = %v, want %s", err, tc.want)
 			}

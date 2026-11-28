@@ -14,8 +14,8 @@ import (
 
 	"github.com/codermaybe/ethguard"
 	"github.com/codermaybe/ethguard/ethapi"
+	"github.com/codermaybe/ethguard/internal/methods"
 	"github.com/codermaybe/ethguard/rpc"
-	"github.com/codermaybe/ethguard/rpc/methods"
 	"github.com/codermaybe/ethguard/rpctest"
 )
 
@@ -92,7 +92,7 @@ func TestCallResultSelectionAndForwardedSemanticsPreserved(t *testing.T) {
 
 	// Explicit single-source mode: Forwarded, value delivered, no
 	// corroboration claim.
-	single, err := ethguard.DialUncorroborated(nodes[0].URL())
+	single, err := ethguard.Dial(nodes[0].URL())
 	if err != nil {
 		t.Fatal(err)
 	}

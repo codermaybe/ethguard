@@ -10,32 +10,33 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/codermaybe/ethguard/aggregator"
 	"github.com/codermaybe/ethguard/config"
+	"github.com/codermaybe/ethguard/internal/aggregator"
+	"github.com/codermaybe/ethguard/internal/pool"
+	"github.com/codermaybe/ethguard/internal/rpcengine"
 	"github.com/codermaybe/ethguard/internal/runtime"
-	"github.com/codermaybe/ethguard/internal/transport"
 	"github.com/codermaybe/ethguard/observe"
-	"github.com/codermaybe/ethguard/pool"
 	"github.com/codermaybe/ethguard/rpc"
 )
 
-// Client is EthGuard's only client: corroborated typed reads with
-// ethclient-shaped signatures, the generic Call decision entry, and the
-// write broadcast. Multiple goroutines may use one Client concurrently;
+// Client is EthGuard's only client: typed reads with ethclient-shaped
+// signatures, the generic Call decision entry, and the write broadcast.
+// Single-source reads are Forwarded; multi-source reads follow each method's
+// corroboration contract. Multiple goroutines may use one Client concurrently;
 // connections are owned and reused by the internal RPC management pool.
 type Client struct {
 	pool       *pool.Pool
 	aggregator *aggregator.Aggregator
 	// plans are the read methods driven by explicit execution plans; their
-	// resolvers own canonical normalization at the facade boundary.
-	plans map[string]rpc.ReadPlan
-	// resolver is the runtime-owned anchor establishment strategy; the facade
+	// Normalize capability supplies standalone comparison keys.
+	plans map[string]rpcengine.ReadPlan
+	// reference is the runtime-owned anchor establishment service; the facade
 	// only queries it (AnchorBlockHash and friends), never replaces it.
-	resolver runtime.ReferenceResolver
-	// corrob is the internal adjudication snapshot source; callers do not
+	reference *runtime.ReferenceService
+	// corrob is the construction-time adjudication rule; callers do not
 	// configure its mode or support floor.
-	corrob *rpc.CorroborationShared
-	// collectTimeout bounds each write fan-out; the read aggregator owns its
+	corrob rpcengine.Corroboration
+	// collectTimeout bounds each write and diagnostic fan-out; the read aggregator owns its
 	// own copy supplied at construction.
 	collectTimeout time.Duration
 	// lifeCtx is the owner lifecycle signal: Close cancels it with the
@@ -47,54 +48,29 @@ type Client struct {
 	cancelLife context.CancelCauseFunc
 	// closeOnce makes the close sequence — the closed mark, the lifecycle
 	// cancellation, and the shared pool close — a single atomic step;
-	// concurrent and repeated calls all wait on the pool's one completion
-	// signal.
+	// concurrent and repeated calls share the same complete close barrier.
 	closeOnce sync.Once
 	// closed is the closed mark new operations gate on.
-	closed atomic.Bool
-}
-
-// HTTPAdapter names the connection adapter a Client's pool uses for HTTP.
-// The native adapter is the default.
-type HTTPAdapter = runtime.Adapter
-
-const HTTPAdapterNative = runtime.AdapterNative
-
-// WithHTTPAdapter selects the HTTP adapter. An empty name selects native.
-func WithHTTPAdapter(a HTTPAdapter) Option {
-	return func(o *clientOptions) { o.httpAdapter = a }
+	closed         atomic.Bool
+	subscriptionMu sync.Mutex
+	subscriptions  map[*attachedSubscription]struct{}
 }
 
 // Option tunes a Client at construction time.
 type Option func(*clientOptions)
 
-// DialerOption installs an explicit connection adapter dialer for the pool.
-// It cannot be combined with per-source transport selections.
-func DialerOption(d transport.Dialer) Option {
-	return func(o *clientOptions) {
-		if d != nil {
-			o.dialer = d
-		}
-	}
-}
-
 type clientOptions struct {
 	logger         *slog.Logger
 	recorder       observe.Recorder
-	anchorCache    time.Duration
 	tipEnabled     bool
 	tipInterval    time.Duration
 	tipMaxBehind   uint64
 	collectTimeout time.Duration
-	httpAdapter    HTTPAdapter
 	// anchoring carries the business-read establishment strategy: the
 	// finalized preset selects the candidate-selection algorithm with its
-	// lag bound. The facade resolver keeps its own configuration.
+	// lag bound. Compose also selects the standalone service's rule.
 	useFinalizedAnchoring bool
 	finalizedMaxLag       uint64
-	// dialer is a pool dialer injected by DialerOption; the default adapter
-	// selection yields to it.
-	dialer transport.Dialer
 	// chainID pins the client to one Ethereum network when WithChainID was
 	// used. A Go option always wins over the configuration value; nil leaves
 	// cfg.ChainID untouched.
@@ -114,7 +90,8 @@ func WithRecorder(r observe.Recorder) Option {
 	return func(o *clientOptions) { o.recorder = r }
 }
 
-// WithCollectTimeout bounds each aggregate collection or forwarded attempt.
+// WithCollectTimeout bounds each aggregate collection, diagnostic sample, or
+// forwarded attempt.
 // A non-positive timeout panics: an Option cannot return an error, and a
 // silently ignored timeout would trade a loud construction failure for
 // unbounded collections.
@@ -129,7 +106,7 @@ func WithCollectTimeout(timeout time.Duration) Option {
 // reference is pinned at the lowest finalized height that is still fresh
 // across sources (the runtime's finalized head resolver), so divergent latest
 // tips no longer fail anchored reads. Options tune the freshness bound and
-// similar knobs.
+// similar knobs. Construction rejects this preset with fewer than two sources.
 func WithFinalizedAnchoring(opts ...FinalizedAnchorOption) Option {
 	return func(o *clientOptions) {
 		o.useFinalizedAnchoring = true
@@ -142,7 +119,8 @@ func WithFinalizedAnchoring(opts ...FinalizedAnchorOption) Option {
 // more than maxBehind blocks are skipped by fan-outs until they catch up or
 // their sample recovers (pool.WithTipTracking). Zero values select the
 // documented defaults (10s sampling, 32-block bound), applied by pool from
-// config's single source of defaults (decision 0004).
+// config's single source of defaults (decision 0004). A single-source client
+// retains periodic health and RTT sampling but has no peer freshness evidence.
 func WithTipTracking(every time.Duration, maxBehind uint64) Option {
 	return func(o *clientOptions) {
 		o.tipEnabled = true
@@ -161,15 +139,21 @@ func WithChainID(chainID uint64) Option {
 }
 
 // New builds a Client from an already-loaded configuration.
-// Upstreams are registered into the RPC pool with endpoint deduplication.
-// Dialing each source is deferred until its first call.
+// Empty or duplicate upstreams are rejected. One upstream selects Forwarded
+// mode; two or more select Majority mode. Dialing each source is deferred until
+// its first call. The finalized anchoring preset requires multiple upstreams.
 //
 // Precedence between the two construction paths: an explicit Go option
 // always wins over a value derived from the configuration, and a zero
 // option value falls through to the documented default. Duration strings
-// in the configuration were validated by cfg.Validate; the parses below
-// cannot fail for a Config that passed validation.
+// in the configuration are validated by config.Normalize before options are
+// applied, so the parses below cannot fail.
 func New(cfg config.Config, opts ...Option) (*Client, error) {
+	normalized, err := config.Normalize(cfg)
+	if err != nil {
+		return nil, err
+	}
+	cfg = normalized
 	co := clientOptions{}
 	for _, opt := range opts {
 		opt(&co)
@@ -206,15 +190,6 @@ func New(cfg config.Config, opts ...Option) (*Client, error) {
 	if co.chainID != nil {
 		cfg.ChainID = *co.chainID
 	}
-	if err := cfg.Validate(); err != nil {
-		return nil, err
-	}
-	if cfg.AnchorCacheTTL != "" {
-		co.anchorCache, _ = time.ParseDuration(cfg.AnchorCacheTTL)
-	}
-	if co.anchorCache != 0 {
-		return nil, fmt.Errorf("ethguard: anchor_cache_ttl is no longer supported; non-zero duration %s conflicts with decision 0026", co.anchorCache)
-	}
 	rec := co.recorder
 	if rec == nil && co.logger != nil {
 		rec = observe.NewLog(co.logger)
@@ -233,8 +208,6 @@ func New(cfg config.Config, opts ...Option) (*Client, error) {
 	runtimeBundle, err := runtime.Compose(runtime.Composition{
 		ChainID:        cfg.ChainID,
 		Upstreams:      cfg.Upstreams,
-		Adapter:        co.httpAdapter,
-		ExplicitDialer: co.dialer,
 		TipTracking:    tip,
 		Recorder:       rec,
 		CollectTimeout: co.collectTimeout,
@@ -248,7 +221,7 @@ func New(cfg config.Config, opts ...Option) (*Client, error) {
 		pool:           runtimeBundle.Pool,
 		aggregator:     runtimeBundle.Aggregator,
 		plans:          runtimeBundle.Plans,
-		resolver:       runtimeBundle.Resolver,
+		reference:      runtimeBundle.Reference,
 		corrob:         runtimeBundle.Corroboration,
 		collectTimeout: co.collectTimeout,
 		lifeCtx:        lifeCtx,
@@ -270,15 +243,7 @@ func (c *Client) Normalize(method string, raw json.RawMessage) (string, error) {
 	if !ok {
 		return "", fmt.Errorf("ethguard: %s has no canonical normalizer: %w", method, rpc.ErrInvalidRequest)
 	}
-	return plan.Resolver.Normalize(raw)
-}
-
-// Pool exposes the underlying multi-source manager for advanced diagnostics.
-// Membership is fixed at construction; the pool exposes no Join/Remove, and
-// health/scheduling can never change the voting basis. Prefer Client methods
-// for normal application code.
-func (c *Client) Pool() *pool.Pool {
-	return c.pool
+	return plan.Normalize(raw)
 }
 
 // Close stops the client: it marks the client closed, cancels the owner
@@ -289,15 +254,27 @@ func (c *Client) Pool() *pool.Pool {
 //
 // It is safe to call from any number of goroutines: the mark and the
 // cancellation happen exactly once, and every caller — first or concurrent —
-// waits on the pool's single completion signal, so Close returns only when
-// the pool's background commitments (the tip sampler) have ended. It does
-// not wait for callers to finish processing their received results.
+// waits for the pool and every attached subscription delivery worker. It
+// does not wait for callers to finish processing already received results.
 func (c *Client) Close() {
 	c.closeOnce.Do(func() {
+		c.subscriptionMu.Lock()
 		c.closed.Store(true)
+		attached := make([]*attachedSubscription, 0, len(c.subscriptions))
+		for entry := range c.subscriptions {
+			attached = append(attached, entry)
+		}
+		c.subscriptions = nil
+		c.subscriptionMu.Unlock()
 		c.cancelLife(pool.ErrClosed)
+		for _, entry := range attached {
+			entry.life.Stop()
+		}
+		c.pool.Close()
+		for _, entry := range attached {
+			<-entry.done
+		}
 	})
-	c.pool.Close()
 }
 
 // isClosed reports the closed mark new operations gate on.
@@ -305,4 +282,4 @@ func (c *Client) isClosed() bool { return c.closed.Load() }
 
 // Mode reports the internally selected adapter route. It is derived from the
 // configured source count and cannot be changed by callers.
-func (c *Client) Mode() rpc.CorroborationMode { return c.corrob.Snapshot().Mode }
+func (c *Client) Mode() rpc.CorroborationMode { return c.corrob.Mode }

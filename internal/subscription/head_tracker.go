@@ -787,7 +787,10 @@ func (h *HeadTracker) seekSupport(now time.Time, current *AnchorNode) (*ObjectRe
 	// Recover one frontier at a time. Current source slots are never replaced by
 	// these historical objects. Prefer the highest frontier for useful progress.
 	var frontier *AnchorNode
-	stop := h.state.Tip.Hash
+	// Only current corroborated support bounds ancestry recovery. The committed
+	// tip may have lost support; a source still there must contribute its older
+	// ancestry when another source moves to a fork before the birth anchor.
+	var stop [32]byte
 	if current != nil {
 		stop = current.Hash
 	}

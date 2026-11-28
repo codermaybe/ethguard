@@ -2,6 +2,7 @@ package receipt
 
 import (
 	"bytes"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"reflect"
@@ -53,7 +54,7 @@ func EncodeBlock(value json.RawMessage) (json.RawMessage, error) {
 			return nil, fmt.Errorf("block receipts[%d]: null receipt", i)
 		}
 		var err error
-		encoded[i], err = Encode(row)
+		encoded[i], err = encodeJSONChecked(row)
 		if err != nil {
 			return nil, fmt.Errorf("block receipts[%d]: %w", i, err)
 		}
@@ -70,8 +71,8 @@ func EncodeBlock(value json.RawMessage) (json.RawMessage, error) {
 // fault rather than a default. Each log's nonzero transactionHash and blockHash
 // must match the receipt, and logsBloom must equal CreateBloom over the logs
 // this function just built: the bloom that ships is the bloom that
-// was checked. Binding a receipt to the request it answers is AdmitTransaction
-// and AdmitBlock, not this function.
+// was checked. PrepareTransaction and PrepareBlock additionally bind receipts
+// to the request they answer.
 // Addresses and hashes are lowercase. Quantities are canonical QUANTITY.
 // Log data keeps leading zeros. Array order is unchanged. JSON is compact,
 // HTML escaping is off, and field order is the encoder struct order.
@@ -79,6 +80,12 @@ func Encode(value json.RawMessage) (json.RawMessage, error) {
 	if err := jsonsafe.Validate(value); err != nil {
 		return nil, fmt.Errorf("receipt JSON: %w", err)
 	}
+	return encodeJSONChecked(value)
+}
+
+// encodeJSONChecked consumes unmodified receipt bytes from a successful
+// jsonsafe.Validate of this value or its enclosing response.
+func encodeJSONChecked(value json.RawMessage) (json.RawMessage, error) {
 	trimmed := bytes.TrimSpace(value)
 	if ethcodec.IsJSONNull(trimmed) {
 		return json.RawMessage("null"), nil
@@ -91,9 +98,9 @@ func Encode(value json.RawMessage) (json.RawMessage, error) {
 	if err := json.Unmarshal(fields["logs"], &rows); err != nil || rows == nil {
 		return nil, fmt.Errorf("receipt: logs must be an array")
 	}
-	logs := make([]canonicalReceiptLog, len(rows))
+	logs := make([]log.CanonicalLog, len(rows))
 	for i, row := range rows {
-		item, err := encodeReceiptLog(row)
+		item, err := log.EncodeOneJSONChecked(row)
 		if err != nil {
 			return nil, fmt.Errorf("receipt logs[%d]: %w", i, err)
 		}
@@ -148,7 +155,7 @@ var zeroHash = common.Hash{}.Hex()
 // checkLogBindings binds every log to the receipt that carries it. Both sides
 // are already canonical, so a mismatch is a source disagreeing with itself
 // rather than two spellings of one value.
-func checkLogBindings(logs []canonicalReceiptLog, transactionHash, blockHash string) error {
+func checkLogBindings(logs []log.CanonicalLog, transactionHash, blockHash string) error {
 	for i, item := range logs {
 		if item.TransactionHash != zeroHash && item.TransactionHash != transactionHash {
 			return fmt.Errorf("receipt logs[%d]: transactionHash %s does not match receipt transactionHash %s", i, item.TransactionHash, transactionHash)
@@ -163,36 +170,23 @@ func checkLogBindings(logs []canonicalReceiptLog, transactionHash, blockHash str
 // canonicalBloom builds the bloom of the logs this encoder just produced, so
 // the emitted logsBloom is checked against the value EthGuard ships rather
 // than against a second decoding of the source payload.
-func canonicalBloom(logs []canonicalReceiptLog) string {
-	decoded := make([]*types.Log, len(logs))
-	for i, item := range logs {
-		entry := &types.Log{Address: common.HexToAddress(item.Address)}
-		entry.Topics = make([]common.Hash, len(item.Topics))
-		for j, topic := range item.Topics {
-			entry.Topics[j] = common.HexToHash(topic)
+func canonicalBloom(logs []log.CanonicalLog) string {
+	var bloom types.Bloom
+	var address [common.AddressLength]byte
+	var topic [common.HashLength]byte
+	var scratch [6]byte
+	for _, item := range logs {
+		// The log encoder already proved the exact widths and hex alphabet.
+		// Decode into fixed storage instead of building a second log tree.
+		_, _ = hex.Decode(address[:], []byte(item.Address[2:]))
+		bloom.AddWithBuffer(address[:], &scratch)
+		for _, text := range item.Topics {
+			_, _ = hex.Decode(topic[:], []byte(text[2:]))
+			bloom.AddWithBuffer(topic[:], &scratch)
 		}
-		decoded[i] = entry
 	}
-	return hexutil.Encode(types.CreateBloom(&types.Receipt{Logs: decoded}).Bytes())
+	return hexutil.Encode(bloom[:])
 }
-
-// encodeReceiptLog canonicalizes one log embedded in a receipt through the
-// shared log encoder: the receipt-side requiredness (missing topics, missing
-// removed, field shapes) is exactly log.Validate's rule set, with identical
-// messages, so both call sites of the log object accept and reject the same
-// payloads.
-func encodeReceiptLog(value json.RawMessage) (canonicalReceiptLog, error) {
-	out, err := log.EncodeOne(value)
-	if err != nil {
-		return canonicalReceiptLog{}, err
-	}
-	return out, nil
-}
-
-// canonicalReceiptLog is the shared protected log object; the receipt log's
-// JSON shape is byte-identical to the eth_getLogs log, so the field set and
-// its fixed order live once in the log package.
-type canonicalReceiptLog = log.CanonicalLog
 
 // Decode checks the canonical receipt, its logs and bloom, and its mined
 // identity before returning the private algorithm representation. Root null
@@ -209,7 +203,16 @@ func Decode(value json.RawMessage) (*types.Receipt, error) {
 // are validated, then handed out, never rebuilt. On failure both returns are
 // nil and the error is exactly Decode's.
 func DecodeWithCanonical(value json.RawMessage) (json.RawMessage, *types.Receipt, error) {
-	canonical, err := Encode(value)
+	if err := jsonsafe.Validate(value); err != nil {
+		return nil, nil, fmt.Errorf("receipt JSON: %w", err)
+	}
+	return decodeWithCanonicalJSONChecked(value)
+}
+
+// decodeWithCanonicalJSONChecked keeps the private geth projection and mined
+// identity checks after encoding, while reusing the enclosing JSON safety gate.
+func decodeWithCanonicalJSONChecked(value json.RawMessage) (json.RawMessage, *types.Receipt, error) {
+	canonical, err := encodeJSONChecked(value)
 	if err != nil {
 		return nil, nil, err
 	}

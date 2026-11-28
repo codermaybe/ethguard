@@ -1,6 +1,6 @@
 # Live canary 契约
 
-状态：2026-11-17 文档基线；固定观察契约起于 2026-10-23，决策依据为 0059。
+状态：2026-11-27 补齐历史执行身份边界；固定观察契约起于 2026-10-23，决策依据为 0059、0075。
 本文拥有 live observation 的 state、固定成员、plan、manifest/report 与 recheck
 边界；§12 单独保存 dated evidence，不把历史执行结论写成当前通过状态。
 本文件不改变 reference policy、`expect/v1`、`batch.json` 或生产裁决语义。
@@ -112,7 +112,7 @@ T10.1/T10.2 必须按以下顺序实现，selection 算法版本写入 manifest�
 6. path 含 URL template placeholder（`${...}` 或未展开的 `{...}`）、UUID
    segment、32 位以上十六进制 segment，或位于 `/v2/`、`/v3/` 之后的 provider
    key segment，记为 `credentials`。
-7. 计算 endpoint identity，规则与 `pool` 的 endpoint 去重键一致：
+7. 计算 endpoint identity，规则与 `internal/pool` 的 endpoint 去重键一致：
    scheme/host 小写、去默认端口、裸 `/` 路径归一为空；path/query 保留。
    endpoint identity 已出现时，保留 registry 顺序中的第一个，其余记为
    `duplicate`。
@@ -380,6 +380,21 @@ Schema 版本：`ethguard.live-manifest/v1`。示例见
 `docs/design/live-canary/manifest.example.json`；示例是合成形状，不是真实
 run，也不是证据。
 
+新 manifest 由构造入口统一写入 `http_adapter: "native"`，包括 registry
+失败和成员不足时生成的材料；CLI 不再补写或覆盖执行身份。该字段是观察的
+provenance，不是可选传输配置。
+
+历史材料缺字段、值为 `null`／空白，或显式记录 geth，均可离线读取、验证和
+比较；缺身份仍为未知，不能推断成 native。解析与验证不改写原字节，report 的
+`manifest_sha256` 始终绑定实际读取的文件。发布 schema 同时描述新输出与这些
+历史可读形态；schema 合法不代表当前二进制可以执行。
+
+当前 Executor／rerun 只执行明确记录 native 的 manifest，在建立运行状态和
+创建客户端之前检查；`livecanary check-rerun -manifest <file>` 使用同一准入规则，
+只做离线检查。recheck 工作流在 checkout 材料记录的源码版本之前，使用当前工具
+通过该检查，避免旧源码绕过退役规则。拒绝执行时保留原材料和诊断，不生成一次
+冒用旧 run 身份的新报告。
+
 ### 8.1 顶层字段
 
 | 字段 | 类型 | 生产用途 |
@@ -390,6 +405,7 @@ run，也不是证据。
 | `source_commit` | 40 位 git SHA | 第三方按 exact commit 重跑离线部分 |
 | `tool_version` | string | 选择 plan/selection 语义 |
 | `go_version` | string | 工具链复现 |
+| `http_adapter` | 新输出为 `"native"`；历史可省略、`null`、空白或 geth | 记录执行身份；读取保真，执行单独检查 |
 | `environment` | object | 区分本地诊断与外部 runner；决定是否可进入 attested evidence |
 | `chain_id` | integer | registry 选取、identity 断言 |
 | `registry` | object | Chainlist snapshot 与发布副本 |
@@ -474,7 +490,7 @@ Manifest 生成纪律：
 - 所有字段由程序从输入、registry 和固定常量生成；人工和 AI 只能审阅，
   不得填写后再作为 run 产物。
 - `plan.sha256`、`voting_basis_sha256` 和 `manifest_sha256` 必须可重算。
-- 不写入历史 golden，不把 live 响应写进 `internal/rpcsample/testdata`。
+- 不写入历史 golden，不把 live 响应写进 `internal/diag/rpcsample/testdata`。
 
 ---
 
@@ -568,8 +584,8 @@ pool-level。
 - report 必须携带 `manifest_sha256` 和 `plan_sha256`；缺失或不匹配即
   `failed`（`evidence_missing`/`schema_error`）。
 - 失败和 `inconclusive` 也必须生成 report，保留已有证据；不得只输出
-  stderr 或空 artifact。例外：manifest 本身无法生成或通过 schema 校验时，
-  不要求 report；workflow 必须失败并保留诊断。
+  stderr 或空 artifact。例外：manifest 本身无法生成、通过 schema 校验，或其
+  历史执行身份不受当前二进制支持时，不要求 report；workflow 必须失败并保留诊断。
 - 不把实时值写入仓库 golden；report 中的 value 只以 digest/kind 和脱敏
   证据出现，完整原始响应留在受控 artifact 中。
 - 人工只能审阅 artifact；任何人工改写都必须使 attestation 失效。

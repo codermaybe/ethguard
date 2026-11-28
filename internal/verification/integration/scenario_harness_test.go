@@ -8,11 +8,12 @@ import (
 	"strings"
 	"testing"
 
-	ethereum "github.com/ethereum/go-ethereum"
+	"github.com/codermaybe/ethguard/internal/rpcengine"
 
 	"github.com/codermaybe/ethguard"
+	"github.com/codermaybe/ethguard/internal/methods"
 	"github.com/codermaybe/ethguard/rpc"
-	"github.com/codermaybe/ethguard/rpc/methods"
+	ethereum "github.com/ethereum/go-ethereum"
 )
 
 // T09.1 fixes one basis for every registered method (N=5, H=2, Q=3). Each
@@ -32,7 +33,7 @@ const (
 // Rows still assert the actual result; this constant only makes the expected
 // boundary legible.
 func t09MatrixQuorum() int {
-	return rpc.Corroboration{Mode: rpc.CorroborationMajority, Floor: t09MatrixFloor}.Required(t09MatrixN)
+	return rpcengine.Corroboration{Mode: rpc.CorroborationMajority, Floor: t09MatrixFloor}.Required(t09MatrixN)
 }
 
 type t09DimensionWant struct {
@@ -362,13 +363,7 @@ func t09AssertNoPendingForm(t *testing.T, method string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	policy := plan.Resolver
-	_ = policy
-	source, ok := policy.(rpc.MethodRuleSource)
-	if !ok {
-		t.Fatalf("%s: policy %T does not report a method rule", method, policy)
-	}
-	rule, _ := source.MethodRule()
+	rule := plan.MethodRule()
 	if rule.Pending != "" {
 		t.Fatalf("%s: pending declaration = %q, want none", method, rule.Pending)
 	}

@@ -2,12 +2,17 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"io"
+	"os"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/codermaybe/ethguard"
 	"github.com/codermaybe/ethguard/config"
+	"github.com/codermaybe/ethguard/rpctest"
 )
 
 func TestReportsReturnOutputFailures(t *testing.T) {
@@ -59,4 +64,54 @@ func (w *reportFailureWriter) Write(p []byte) (int, error) {
 	n, _ := w.written.Write(p[:w.remaining])
 	w.remaining = 0
 	return n, w.err
+}
+
+func TestDeepDiveMakesAnotherFullSampleAndNormalizesClusters(t *testing.T) {
+	cfg := config.Config{}
+	nodes := []*rpctest.Node{rpctest.NewNode(1), rpctest.NewNode(1)}
+	for i, node := range nodes {
+		t.Cleanup(node.Close)
+		value := "0xa"
+		if i == 1 {
+			value = "0xA"
+		}
+		node.Return("eth_chainId", value)
+		cfg.Upstreams = append(cfg.Upstreams, config.Upstream{ID: value, Endpoint: node.URL()})
+	}
+	client, err := ethguard.New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(client.Close)
+	if _, err := client.Call(context.Background(), "eth_chainId"); err != nil {
+		t.Fatal(err)
+	}
+	output, err := os.CreateTemp(t.TempDir(), "deep-dive")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := output.Close(); err != nil {
+			t.Errorf("close diagnostic output: %v", err)
+		}
+	}()
+	previous := os.Stderr
+	os.Stderr = output
+	defer func() { os.Stderr = previous }()
+	diveInto(client, step{name: "chainId", method: "eth_chainId"}, time.Second)
+	content, err := os.ReadFile(output.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(content), "1 clusters, 0 faulted") {
+		t.Fatalf("deep dive skipped Normalize clustering: %s", content)
+	}
+	for i, node := range nodes {
+		if calls := node.Calls(); len(calls) != 2 {
+			t.Fatalf("source %d received %d requests, want original plus diagnostic sample", i, len(calls))
+		}
+		if h := client.Sources()[i].Health; h.Successes != 2 || h.Failures != 0 {
+			t.Fatalf("second diagnostic request health: %+v", h)
+		}
+	}
 }

@@ -22,7 +22,7 @@ echo "==> checking generated public types"
 generated_types="$(mktemp)"
 generated_audit="$(mktemp)"
 trap 'rm -f "$generated_types" "$generated_audit"' EXIT
-go run ./rpc/internal/wire/gen -out "$generated_types" -audit-out "$generated_audit"
+go run ./internal/wiregen -out "$generated_types" -audit-out "$generated_audit"
 if ! cmp -s "$generated_types" ethapi/types.gen.go; then
     echo "ethapi/types.gen.go is stale; run go generate ./ethapi" >&2
     diff -u ethapi/types.gen.go "$generated_types" || true

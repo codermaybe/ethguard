@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/codermaybe/ethguard"
+	"github.com/codermaybe/ethguard/internal/methods"
 	"github.com/codermaybe/ethguard/rpc"
-	"github.com/codermaybe/ethguard/rpc/methods"
 	"github.com/codermaybe/ethguard/rpctest"
 )
 
@@ -70,7 +70,7 @@ func TestCallRegisteredReadStaysForwardedInSingleSourceMode(t *testing.T) {
 	for _, node := range nodes {
 		node.Return(methods.MethodChainID, "0x1")
 	}
-	single, err := ethguard.DialUncorroborated(nodes[0].URL())
+	single, err := ethguard.Dial(nodes[0].URL())
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -6,9 +6,10 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/codermaybe/ethguard/pool"
+	"github.com/codermaybe/ethguard/internal/methods"
+	"github.com/codermaybe/ethguard/internal/pool"
+	"github.com/codermaybe/ethguard/internal/rpcengine"
 	"github.com/codermaybe/ethguard/rpc"
-	"github.com/codermaybe/ethguard/rpc/methods"
 )
 
 // Regression counterexamples added during T01 acceptance review.
@@ -56,7 +57,7 @@ func TestReviewDecoratedMethods(t *testing.T) {
 }
 
 func TestReviewDuplicateObservationCannotCorroborate(t *testing.T) {
-	p := rpc.Strict(rpc.CanonicalJSON, rpc.WithQuorum(2))
+	p := rpcengine.Strict(rpc.CanonicalJSON, rpcengine.WithQuorum(2))
 	source := rpc.SourceRef{ID: "same", Name: "same", URL: "https://same.example"}
 	obs := rpc.Observation{Attempted: true, Source: source, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage(`"0x1"`)}}}
 	d, err := p.Resolve([]rpc.Observation{obs, obs})

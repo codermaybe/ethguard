@@ -2,7 +2,7 @@ package wss
 
 // The dependency interlock for the owned WSS wire layer. It is the executable
 // form of wire_dependencies.md: production files may import only the Go
-// standard library and the four listed project packages, no third-party
+// standard library and the listed project packages, no third-party
 // websocket library may appear anywhere in the package, and the link graph of
 // this package must never reach the go-ethereum client, its rpc package, or
 // the removed gorilla binding.
@@ -22,10 +22,9 @@ const modulePath = "github.com/codermaybe/ethguard"
 // import in production files. Anything else from the module is owned by an
 // upper layer and must not be reachable from the transport seam.
 var allowedInternalImports = map[string]string{
-	modulePath + "/internal/limits":    "response-size bound shared with HTTP",
-	modulePath + "/internal/rpcwire":   "project-owned JSON-RPC codec",
-	modulePath + "/internal/transport": "transport Port and neutral sentinels",
-	modulePath + "/rpc":                "hex-quantity parsing for ChainID",
+	modulePath + "/internal/limits":              "response-size bound shared with HTTP",
+	modulePath + "/internal/transport":           "transport Port and neutral sentinels",
+	modulePath + "/internal/transport/streamrpc": "shared duplex RPC owner",
 }
 
 // isStdlib reports whether an import path belongs to the Go standard library

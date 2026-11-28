@@ -10,9 +10,9 @@ import (
 
 	"github.com/codermaybe/ethguard"
 	"github.com/codermaybe/ethguard/config"
-	"github.com/codermaybe/ethguard/pool"
+	"github.com/codermaybe/ethguard/internal/methods"
+	"github.com/codermaybe/ethguard/internal/pool"
 	"github.com/codermaybe/ethguard/rpc"
-	"github.com/codermaybe/ethguard/rpc/methods"
 	"github.com/codermaybe/ethguard/rpctest"
 )
 
@@ -23,7 +23,7 @@ import (
 func TestRequiredSupportPerMembership(t *testing.T) {
 	for n, want := range map[int]int{2: 2, 3: 2, 4: 3, 5: 3} {
 		client, _ := fleet(t, 1, 1, n)
-		if got := client.Pool().Len(); got != n {
+		if got := len(client.Sources()); got != n {
 			t.Fatalf("N=%d: expected %d members, got %d", n, n, got)
 		}
 		_ = want // bound asserted through the behavioral tests below
@@ -159,8 +159,8 @@ func TestUnavailableMembersStayInDenominator(t *testing.T) {
 		if _, _, err := client.ChainID(ctx); !errors.Is(err, ethguard.ErrInsufficientSupport) {
 			t.Fatalf("2 agreeing of a 5-member basis must not corroborate, got %v", err)
 		}
-		if len(client.Pool().Sources()) != 5 {
-			t.Fatalf("expected the 5-member basis to survive failed transports, got %d", len(client.Pool().Sources()))
+		if len(client.Sources()) != 5 {
+			t.Fatalf("expected the 5-member basis to survive failed transports, got %d", len(client.Sources()))
 		}
 	})
 }
@@ -244,7 +244,6 @@ func TestNoExtraVotes(t *testing.T) {
 
 	t.Run("repeated requests add no vote", func(t *testing.T) {
 		client, _ := fleet(t, 1, 1, 3)
-		p := client.Pool()
 		// Issue the same call repeatedly: every call is its own invocation
 		// with the same basis — no vote accumulates across them.
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -259,8 +258,8 @@ func TestNoExtraVotes(t *testing.T) {
 				t.Fatalf("call %d: expected exactly the basis as support, got %+v", i, decision)
 			}
 		}
-		if p.Len() != 3 {
-			t.Fatalf("membership changed across repeated calls: %d", p.Len())
+		if len(client.Sources()) != 3 {
+			t.Fatalf("membership changed across repeated calls: %d", len(client.Sources()))
 		}
 	})
 

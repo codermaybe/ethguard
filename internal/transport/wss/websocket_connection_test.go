@@ -354,10 +354,10 @@ func TestConnectionWriteFailsAfterPeerClose(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 	// The first write into a freshly closed loopback peer can still land in
 	// the kernel buffer; the connection is unusable from the second write on.
-	if err := conn.WriteMessage(context.Background(), []byte(`{"first":true}`)); err != nil {
+	if _, err := conn.WriteMessage(context.Background(), []byte(`{"first":true}`)); err != nil {
 		t.Fatalf("first write: %v", err)
 	}
-	if err := conn.WriteMessage(context.Background(), []byte(`{"second":true}`)); err == nil {
+	if _, err := conn.WriteMessage(context.Background(), []byte(`{"second":true}`)); err == nil {
 		t.Fatal("write to a closed connection succeeded")
 	}
 }
@@ -384,7 +384,7 @@ func TestConnectionWriteDeadlineBoundsAndClears(t *testing.T) {
 	for {
 		start := time.Now()
 		ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
-		err := conn.WriteMessage(ctx, frame)
+		_, err := conn.WriteMessage(ctx, frame)
 		cancel()
 		if err == nil {
 			if time.Now().After(overall) {
@@ -403,7 +403,7 @@ func TestConnectionWriteDeadlineBoundsAndClears(t *testing.T) {
 	// A following small write on a fresh connection must not inherit the
 	// stale deadline: a context without a deadline clears it.
 	fresh := dialTestConn(t, wsURL(srv), 1<<20)
-	if err := fresh.WriteMessage(context.Background(), []byte(`{}`)); err != nil {
+	if _, err := fresh.WriteMessage(context.Background(), []byte(`{}`)); err != nil {
 		t.Fatalf("write after the deadline elapsed: %v", err)
 	}
 }
@@ -415,7 +415,7 @@ func TestConnectionWriteSkipsBytesWhenContextCanceled(t *testing.T) {
 	conn := dialTestConn(t, wsURL(srv), 1<<20)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if err := conn.WriteMessage(ctx, []byte(`{"canceled":true}`)); !errors.Is(err, context.Canceled) {
+	if _, err := conn.WriteMessage(ctx, []byte(`{"canceled":true}`)); !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v, want context.Canceled", err)
 	}
 }
@@ -439,7 +439,7 @@ func TestConnectionWriteSkipsBytesWhenDeadlineSetupFails(t *testing.T) {
 	cause := errors.New("deadline setup failed")
 	raw := &writeDeadlineFailureConn{deadlineErr: cause}
 	conn := &Conn{raw: raw, writeSem: make(chan struct{}, 1)}
-	err := conn.WriteMessage(context.Background(), []byte(`{"bounded":true}`))
+	_, err := conn.WriteMessage(context.Background(), []byte(`{"bounded":true}`))
 	if !errors.Is(err, cause) {
 		t.Errorf("write error = %v, want deadline failure", err)
 	}

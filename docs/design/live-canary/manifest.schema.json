@@ -28,6 +28,11 @@
     "source_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
     "tool_version": {"const": "ethguard-live-canary/v1"},
     "go_version": {"type": "string", "pattern": "^go[0-9]"},
+    "http_adapter": {
+      "description": "Recorded HTTP implementation. Missing, null, or blank remains unspecified historical provenance; only explicit native provenance can execute.",
+      "type": ["string", "null"],
+      "pattern": "^[\u0009-\u000d \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]*([Nn][Aa][Tt][Ii\u0130][Vv][Ee]|[Gg][Ee][Tt][Hh])?[\u0009-\u000d \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]*$"
+    },
     "environment": {"$ref": "#/$defs/environment"},
     "chain_id": {"const": 1},
     "registry": {"$ref": "#/$defs/registry"},

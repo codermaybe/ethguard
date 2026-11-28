@@ -1,6 +1,6 @@
 # Release Contract（发布门禁与发布契约）
 
-状态：**2026-11-25 质量门禁更新，现行发布流程**。本文件冻结发布入口、前置条件、门禁覆盖范围、产物
+状态：**2026-11-28 标准同步工具纳入发布，现行发布流程**。本文件冻结发布入口、前置条件、门禁覆盖范围、产物
 与发布语义、失败处置，并登记本轮实际证据。业务完成度见
 [project-roadmap.md](project-roadmap.md)；本文件不维护第二份业务计划或状态台账。
 
@@ -34,9 +34,9 @@
 | `bash scripts/release_check.sh` | 格式、tidy、公开生成类型新鲜度、vet、固定版本默认/anvil lint、anvil纯编译、build、全仓 race、可达漏洞扫描 | 不是离线流程；需要 `vuln.go.dev`；不代表完整发布验证 |
 | `bash scripts/lint.sh` | 固定golangci-lint 2.15.0，默认与anvil全仓扫描 | 生产、测试、cmd/testkit、生成器与生成代码全部纳入；没有本地链或provider请求 |
 | `bash scripts/release_api_diff.sh PREVIOUS_TAG` | 上一已发布版本与当前整模块公共 API 对比，包含删除的包 | `release-evidence/`；API 变化仅报告，工具、下载与导出错误失败 |
-| `bash scripts/release_build.sh` | GoReleaser snapshot、15 个产物校验、5 个本机入口 `-h` smoke | 成功才删除新建的 `dist`；失败保留；拒绝覆盖原有目录 |
+| `bash scripts/release_build.sh` | GoReleaser snapshot、18 个产物校验、6 个本机入口 `-h` smoke | 成功才删除新建的 `dist`；失败保留；拒绝覆盖原有目录 |
 | `bash scripts/release_build.sh --keep-artifacts` | 相同构建验证，但保留候选产物 | 工作流在归档后清理 |
-| `bash scripts/release_build.sh --verify-artifacts` | 只读校验固定 15 项的文件集合与 SHA-256 | 不要求 GoReleaser，不运行或删除二进制 |
+| `bash scripts/release_build.sh --verify-artifacts` | 只读校验固定 18 项的文件集合与 SHA-256 | 不要求 GoReleaser，不运行或删除二进制 |
 | `release.yml` prepare | 以上入口，加 jsonsafe / wire 各 100 万次 race fuzz | 全部完成后才允许进入发布 job |
 | `ci.yml` release-config | GoReleaser schema、shell 语法、actionlint | push / PR 的配置门；不创建产物或发布 |
 
@@ -110,14 +110,14 @@ GoReleaser 使用官方 schema 和默认构建隔离目录；显式保留 `-trim
 
 ## 4. 产物与发布语义
 
-- `cmd/{soak,rpcsample,shapeprobe,specbundle,specdiff}` ×
-  `{linux_amd64,linux_arm64,darwin_arm64}`：15 个原始二进制与 `checksums.sha256`。
+- `cmd/{soak,rpcsample,shapeprobe,specbundle,specdiff,specsync}` ×
+  `{linux_amd64,linux_arm64,darwin_arm64}`：18 个原始二进制与 `checksums.sha256`。
   资产命名与原流程保持一致；GoReleaser metadata 不上传为 Release 资产。
 - 候选 artifact 保存 payload tar、固定 SHA / 版本 / 前版 / run ID 的 manifest、API
   导出与报告、门禁和构建日志、notes、证据校验和，保留 14 天。payload 内保存文件权限。
   准备阶段成功归档后删除本地产物；失败保留并上传现有诊断。不会清理 Go 缓存。
 - 发布 job 复验 manifest 与 payload，再创建不可移动的 annotated tag 和 draft。
-  上传后通过 GitHub API 确认恰好 16 个资产，下载并校验各文件 SHA-256，再公开 Release。
+  上传后通过 GitHub API 确认恰好 19 个资产（由已核验的二进制 checksum 条数加一派生），下载并校验各文件 SHA-256，再公开 Release。
   准备与发布清理均不删除远端 artifact；发布失败保留本地诊断与现有 tag / draft。
 - tag 一旦创建，模块代理即可取用；GitHub Release 公开前仍可能存在短暂 tag-only
   窗口。不能保证远端 API 永不失败，也不自动回滚或覆盖已公开内容。

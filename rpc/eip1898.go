@@ -5,11 +5,6 @@ import (
 	"strings"
 )
 
-// EIP-1898 BlockNumberOrHash object semantics. These are request-shape
-// facts shared by the execution plan and the EIP1898BlockRef compatibility
-// decorator: one implementation, so the object form's validation and its
-// rewrite condition cannot drift between the two surfaces.
-
 // ValidateEIP1898Object checks one EIP-1898 BlockNumberOrHash object at an
 // anchored position. It returns whether requireCanonical was set, whether
 // the object carries a moving tag that still needs its reference, and the
@@ -83,8 +78,7 @@ func isBlockHash(s string) bool {
 
 // EIP1898Rewrite returns the rewritten object for a moving blockNumber at an
 // anchored position: {blockHash: hash[, requireCanonical]}. The tag is never
-// downgraded and requireCanonical is never dropped. It is the shared rewrite
-// behind the plan and the EIP1898BlockRef decorator.
+// downgraded and requireCanonical is never dropped.
 func EIP1898Rewrite(hash string, requireCanonical bool) map[string]any {
 	out := map[string]any{"blockHash": hash}
 	if requireCanonical {

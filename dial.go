@@ -7,24 +7,20 @@ import (
 	"github.com/codermaybe/ethguard/config"
 )
 
-// Dial builds a Client from two or more distinct RPC endpoints using the
-// default configuration — the programmatic counterpart of ethclient.Dial for
-// the corroborating case:
+// Dial builds a Client from one or more distinct RPC endpoints using the
+// default configuration. One endpoint selects Forwarded mode; two or more
+// select Majority mode. The mode stays fixed for the client's lifetime:
 //
 //	client, err := ethguard.Dial("https://a.example:8545", "https://b.example:8545")
 //
 // The default configuration means: strict anchoring, the documented collect
 // window and tip-tracking defaults, and no chain pinning (Dial never sets a
 // ChainID implicitly — pass WithChainID for that). Construction is lazy: no
-// endpoint is contacted until the first call. Advanced control (anchoring
-// presets, tip tracking, per-source options) builds a config with
-// config.FromEndpoints and constructs with New.
+// endpoint is contacted until the first call. Open accepts Go options;
+// per-source options can be configured with New.
 //
-// Fewer than two endpoints fails: corroboration needs independent sources,
-// and a single source must enter its Forwarded mode explicitly through
-// DialUncorroborated. Duplicate endpoints fail the same way the YAML path
-// rejects them — a repeated URL shrinks the voting basis without adding a
-// source. Errors carry the endpoint index and a fix hint.
+// Empty and duplicate endpoint lists fail. A repeated URL cannot silently
+// shrink the voting basis into single-source mode.
 func Dial(rawurls ...string) (*Client, error) {
 	return DialContext(context.Background(), rawurls...)
 }
@@ -35,27 +31,24 @@ func Dial(rawurls ...string) (*Client, error) {
 // built. Calls made through the returned Client keep using their own
 // per-call contexts; this context never rides a read.
 func DialContext(ctx context.Context, rawurls ...string) (*Client, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, fmt.Errorf("ethguard: dial canceled before construction: %w", err)
-	}
-	if len(rawurls) < 2 {
-		return nil, fmt.Errorf("ethguard: dial requires at least two distinct endpoints (got %d): corroboration needs independent sources — dial one endpoint explicitly with DialUncorroborated", len(rawurls))
-	}
-	cfg, err := config.FromEndpoints(rawurls...)
-	if err != nil {
-		return nil, err
-	}
-	return New(cfg)
+	return OpenContext(ctx, rawurls)
 }
 
-// DialUncorroborated dials exactly one endpoint and enters Forwarded mode
-// explicitly — the single-source construction decision 0030 reserves for
-// trusted configuration control. Reads ride that one source and are reported
-// as Forwarded, never claimed corroborated. Two or more sources belong in
-// Dial. Options pass through to New; an explicit Go option wins over the
-// derived configuration per New's documented precedence.
-func DialUncorroborated(rawurl string, opts ...Option) (*Client, error) {
-	cfg, err := config.FromEndpoints(rawurl)
+// Open builds a lazy Client from one or more distinct endpoints and options.
+// One endpoint selects Forwarded mode; two or more select Majority mode.
+// Options have the same meaning and precedence as in New.
+func Open(endpoints []string, opts ...Option) (*Client, error) {
+	return OpenContext(context.Background(), endpoints, opts...)
+}
+
+// OpenContext is Open with an entry-time context check. It performs no network
+// I/O and does not bind ctx to the client's lifetime. Each later call supplies
+// its own context, including the context used for the first lazy dial.
+func OpenContext(ctx context.Context, endpoints []string, opts ...Option) (*Client, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("ethguard: construction canceled at entry: %w", err)
+	}
+	cfg, err := config.FromEndpoints(endpoints...)
 	if err != nil {
 		return nil, err
 	}

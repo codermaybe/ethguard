@@ -29,13 +29,6 @@ on:
         required: true
         type: string
   workflow_dispatch:
-    inputs:
-      http_adapter:
-        description: 'Native HTTP adapter used for the run'
-        required: false
-        default: 'native'
-        type: choice
-        options: ['native']
 
 permissions:
   contents: read
@@ -72,12 +65,11 @@ jobs:
         id: canary
         env:
           OUT_DIR: ${{ runner.temp }}/live-canary
-          HTTP_ADAPTER: ${{ inputs.http_adapter || 'native' }}
         run: |
           set -euo pipefail
           mkdir -p "${OUT_DIR}"
           set +e
-          "${RUNNER_TEMP}/livecanary" run -http-adapter "${HTTP_ADAPTER}" -out "${OUT_DIR}/manifest.json" 2>&1 | tee "${OUT_DIR}/run.log"
+          "${RUNNER_TEMP}/livecanary" run -out "${OUT_DIR}/manifest.json" 2>&1 | tee "${OUT_DIR}/run.log"
           status=("${PIPESTATUS[@]}")
           set -e
           test "${status[1]}" -eq 0

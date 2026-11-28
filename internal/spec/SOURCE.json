@@ -2,9 +2,36 @@
   "repository": "https://github.com/ethereum/execution-apis",
   "version": "981aa66d79364be8322a9c358aaf0a571cca0873",
   "commit": "981aa66d79364be8322a9c358aaf0a571cca0873",
+  "category": "official",
   "dereferencedOpenRPCSHA256": "80efa2c6ab609d9ec48fa6d720650d1c3903065c887e03c600970ca97c2f09a5",
   "bundles": {
-    "methods.json": "c600c7959d8ab76884f1db9d8fe5bd2c1a4f4a274afd2fdaf6f8cf5ff454f73a",
-    "requests.json": "cf615db34c0affdae6589787de939a0e4df74f4d226a4be37d6c727626f3f397"
+    "inventory.json": "69cd2ee6ded036f026b48fdeb96a50101669d5b2d0e80aa4738348330883d463",
+    "methods.json": "693db577faf0fed3d1f249a779cef7d4e92f29c57ad0c5c45bfb53a573171581",
+    "requests.json": "6a603cf76ac7eeb6ac437d0bcf09900a73105847bbe159343fafa587af8b2db1"
+  },
+  "vectorManifestSHA256": "1e47cdb64339ec59e7a5f15d82d24290f7d0afc9938079bc84e9f689f62087dc",
+  "build": {
+    "tool": "tools/cmd/specgen",
+    "commit": "981aa66d79364be8322a9c358aaf0a571cca0873",
+    "arguments": [
+      "-deref",
+      "-schemas",
+      "src/schemas",
+      "-schemas",
+      "src/engine/openrpc/schemas",
+      "-methods",
+      "src/eth",
+      "-methods",
+      "src/debug",
+      "-methods",
+      "src/txpool",
+      "-methods",
+      "src/engine/openrpc/methods",
+      "-methods",
+      "src/testing",
+      "-error-groups",
+      "src/error-groups"
+    ],
+    "goVersion": "go1.26.11"
   }
 }

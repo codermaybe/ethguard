@@ -21,9 +21,9 @@ import (
 
 	"github.com/codermaybe/ethguard"
 	"github.com/codermaybe/ethguard/ethapi"
+	"github.com/codermaybe/ethguard/internal/methods"
 	"github.com/codermaybe/ethguard/internal/testkit/ethapitest"
 	"github.com/codermaybe/ethguard/internal/typed"
-	"github.com/codermaybe/ethguard/rpc/methods"
 )
 
 // Typed summary helpers. Every summary is the production typed shape's own
@@ -706,11 +706,11 @@ func TestTypedProjectionPreservesFullUint64FeeCount(t *testing.T) {
 			if len(calls) != 1 || calls[0].Method != methods.MethodFeeHistory {
 				t.Fatalf("calls = %+v, want one fee history request", calls)
 			}
-			var got uint64
+			var got hexutil.Uint64
 			if err := json.Unmarshal(calls[0].Params[0], &got); err != nil {
 				t.Fatal(err)
 			}
-			if got != count {
+			if uint64(got) != count {
 				t.Fatalf("fee count = %d, want %d", got, count)
 			}
 		})

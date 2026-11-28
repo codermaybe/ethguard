@@ -1,0 +1,25 @@
+{
+  "id": "getlogs-empty-array-overlap",
+  "sourceVersion": "981aa66d79364be8322a9c358aaf0a571cca0873",
+  "sourceCommit": "981aa66d79364be8322a9c358aaf0a571cca0873",
+  "target": {
+    "method": "eth_getLogs",
+    "part": "result"
+  },
+  "reason": "The shared FilterResults schema uses oneOf for arrays of hashes and arrays of logs. Both branches match an empty array, rejecting a valid empty eth_getLogs result. Use anyOf for this method only to admit their overlap while preserving the existing public two-branch generated model and all non-empty branch constraints. This does not extend the method admission/protected logs contract to hash results.",
+  "references": [
+    "https://github.com/ethereum/execution-apis/blob/981aa66d79364be8322a9c358aaf0a571cca0873/src/schemas/filter.yaml",
+    "https://github.com/ethereum/execution-apis/blob/981aa66d79364be8322a9c358aaf0a571cca0873/src/eth/filter.yaml",
+    "https://eips.ethereum.org/EIPS/eip-1474#eth_getlogs"
+  ],
+  "retireWhen": "Review on every pin change. Remove when the upstream eth_getLogs result admits an empty log array without ambiguous oneOf validation. A future method-specific logs-only model requires a separate public type and method-semantics migration.",
+  "inputSchemaSHA256": "d0484280a3570e0e2b759290d624df37e7681bb2d19eb7d280346e9024a144bd",
+  "outputSchemaSHA256": "858a168dd53984330bbf70a0e6f858af411d01198ffe4dd316926f7552f52aa3",
+  "patch": [
+    {
+      "op": "move",
+      "from": "/oneOf",
+      "path": "/anyOf"
+    }
+  ]
+}

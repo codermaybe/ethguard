@@ -44,7 +44,7 @@ func TestUpgradeExchangesFramesWithTheOwnedClient(t *testing.T) {
 	defer conn.Close() //nolint:errcheck // Socket cleanup has no pending output; disconnects are expected at fixture teardown.
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	if err := conn.WriteMessage(ctx, []byte("echo-me")); err != nil {
+	if _, err := conn.WriteMessage(ctx, []byte("echo-me")); err != nil {
 		t.Fatalf("write: %v", err)
 	}
 	if err := conn.SetReadDeadline(time.Now().Add(3 * time.Second)); err != nil {

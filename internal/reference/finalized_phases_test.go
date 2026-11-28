@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/codermaybe/ethguard/internal/rpcengine"
 	"github.com/codermaybe/ethguard/observe"
 	"github.com/codermaybe/ethguard/rpc"
 )
@@ -110,13 +111,13 @@ func TestConfirmSelectionDetectsReorg(t *testing.T) {
 		t.Fatalf("confirmation binding failure lost new response: %+v", confirmed)
 	}
 	found := false
-	for _, fault := range rpc.UnassessedOutcome(sel.observations).Decision.SourceFaults {
+	for _, fault := range rpcengine.UnassessedOutcome(sel.observations).Decision.SourceFaults {
 		if fault.Source.ID == "b" && strings.Contains(fault.Err.Error(), "confirm") {
 			found = true
 		}
 	}
 	if !found {
-		t.Fatalf("reorg fault not attributed to the confirming source: %+v", rpc.UnassessedOutcome(sel.observations).Decision.SourceFaults)
+		t.Fatalf("reorg fault not attributed to the confirming source: %+v", rpcengine.UnassessedOutcome(sel.observations).Decision.SourceFaults)
 	}
 }
 

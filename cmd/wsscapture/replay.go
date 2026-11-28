@@ -12,9 +12,9 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/codermaybe/ethguard/internal/methods"
 	"github.com/codermaybe/ethguard/internal/rpcwire"
 	"github.com/codermaybe/ethguard/rpc"
-	"github.com/codermaybe/ethguard/rpc/methods"
 )
 
 var protocolStates = []string{"missing", "null", "empty-hex", "value"}
@@ -114,7 +114,7 @@ func replayDirectory(dir string, out io.Writer) error {
 				return fmt.Errorf("%s/%s: eth_call data = %s, want %s", record.Provider, record.Scenario, value, record.DataRaw)
 			}
 		}
-		key, err := policy.Normalize(structured.Raw())
+		key, err := plan.Normalize(structured.Raw())
 		if err != nil {
 			return fmt.Errorf("%s/%s: eth_call normalize: %w", record.Provider, record.Scenario, err)
 		}

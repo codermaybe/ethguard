@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/codermaybe/ethguard/internal/rpcengine"
 	"github.com/codermaybe/ethguard/internal/uncertain"
 	"github.com/codermaybe/ethguard/rpc"
 )
@@ -17,34 +18,23 @@ const anchorMethodName = "anchor"
 // headAnchorPolicy is the strict head policy for reference establishment: it
 // preserves the winning source's spelling in the decision value (the anchor
 // evidence keeps the source's own wire form; the request path lowercases the
-// derived hash separately), and requires a corroborated result.
-type headAnchorPolicy struct{ rpc.Policy }
-
-func (p headAnchorPolicy) Resolve(obs []rpc.Observation) (rpc.Outcome, error) {
-	d, err := p.Policy.Resolve(obs)
-	d.Decision = restoreAnchorSourceValue(d.Decision, obs)
-	return p.requireCorroborated(d, err)
+// derived hash separately). Reference admissibility is checked against the
+// invocation's purpose and frozen basis after the round has formed evidence.
+type headAnchorPolicy struct {
+	resolver rpcengine.CorroboratingResolver
 }
 
-func (p headAnchorPolicy) ResolveCorroborated(c rpc.Corroboration, obs []rpc.Observation) (rpc.Outcome, error) {
-	var (
-		d   rpc.Outcome
-		err error
-	)
-	if cp, ok := p.Policy.(rpc.CorroboratingPolicy); ok {
-		d, err = cp.ResolveCorroborated(c, obs)
-	} else {
-		d, err = p.Policy.Resolve(obs)
-	}
+func (p headAnchorPolicy) ResolveCorroborated(c rpcengine.Corroboration, obs []rpc.Observation) (rpcengine.Outcome, error) {
+	d, err := p.resolver.ResolveCorroborated(c, obs)
 	d.Decision = restoreAnchorSourceValue(d.Decision, obs)
-	return p.requireCorroborated(d, err)
+	return d, err
 }
 
 // Anchor comparison uses the canonical head encoder, but the anchor decision
 // is an internal reference observation and must preserve the winning source's
 // wire spelling. The request path lowercases the derived hash separately.
 func restoreAnchorSourceValue(d rpc.Decision, obs []rpc.Observation) rpc.Decision {
-	if d.Status != rpc.Corroborated || d.Representative.ID == "" {
+	if (d.Status != rpc.Corroborated && d.Status != rpc.Forwarded) || d.Representative.ID == "" {
 		return d
 	}
 	for _, item := range obs {
@@ -54,14 +44,6 @@ func restoreAnchorSourceValue(d rpc.Decision, obs []rpc.Observation) rpc.Decisio
 		}
 	}
 	return d
-}
-
-func (p headAnchorPolicy) requireCorroborated(d rpc.Outcome, err error) (rpc.Outcome, error) {
-	if err == nil && d.Decision.Status != rpc.Corroborated {
-		d.Decision.Adjudication.Reason = rpc.ReasonGuaranteeNotMet
-		err = fmt.Errorf("uncorroborated anchor: %w", rpc.ErrGuaranteeNotMet)
-	}
-	return d, err
 }
 
 func blockRefFromDecision(d rpc.Decision) (string, uint64, error) {
@@ -79,107 +61,49 @@ func blockRefFromDecision(d rpc.Decision) (string, uint64, error) {
 	return strings.ToLower(head.Hash), height, nil
 }
 
-// StrictHeadService establishes corroborated latest and safe references
-// through the client's reference stage: the facade and the invocation's
-// business reads share one establishment, so the same fleet, tag, and request
-// produce the same evidence on both paths.
-type StrictHeadService struct {
-	stage    *ReferenceStage
-	corrob   *rpc.CorroborationShared
-	corrobOK bool
+// ReferenceService establishes standalone references through the client's
+// shared stage. The stage owns tag routing and candidate/confirmation rules;
+// the service supplies the construction-time rule and a fresh invocation.
+type ReferenceService struct {
+	stage *ReferenceStage
+	rule  rpcengine.Corroboration
 }
 
-// NewStrictHeadService builds the default latest-head establishment service
-// over the shared stage.
-func NewStrictHeadService(stage *ReferenceStage, corrob *rpc.CorroborationShared) *StrictHeadService {
-	return &StrictHeadService{stage: stage, corrob: corrob, corrobOK: corrob != nil}
+// NewReferenceService builds a reference query service over the shared stage.
+func NewReferenceService(stage *ReferenceStage, rule rpcengine.Corroboration) *ReferenceService {
+	return &ReferenceService{stage: stage, rule: rule}
 }
 
-// snapshot captures the service's shared adjudication configuration for one
-// round.
-func (s *StrictHeadService) snapshot() (rpc.Corroboration, bool) {
-	if !s.corrobOK {
-		return rpc.Corroboration{}, false
-	}
-	return s.corrob.Snapshot(), true
-}
-
-// Reference establishes the default moving reference (latest). Each facade
-// call runs its own invocation: freshness is per call (decision 0026), and
-// the invocation's frozen basis is the pool's current voting membership.
-func (s *StrictHeadService) Reference(ctx context.Context) (rpc.ReferenceEvidence, error) {
-	return s.establish(ctx, rpc.ReferenceLatest)
+// Reference establishes the default moving reference. The finalized preset
+// routes latest through finalized candidate selection and confirmation.
+// Freshness is per call, with the pool's current voting membership frozen.
+func (s *ReferenceService) Reference(ctx context.Context) (rpc.ReferenceEvidence, error) {
+	return s.establish(ctx, rpc.ReferenceLatest, rpcengine.ReferencePurposeStandaloneAnchor)
 }
 
 // ReferenceForTag establishes the reference for exactly the requested tag.
-// Each level keeps its meaning — safe is anchored at the safe reference,
-// never silently latest — and the returned evidence records the original tag.
-func (s *StrictHeadService) ReferenceForTag(ctx context.Context, tag string) (rpc.ReferenceEvidence, error) {
+// Safe always uses strict safe establishment. The stage records requested
+// intent in the evidence; that tag is not independent proof of the chain level.
+func (s *ReferenceService) ReferenceForTag(ctx context.Context, tag string) (rpc.ReferenceEvidence, error) {
 	if tag == "" || tag == string(rpc.ReferenceLatest) {
 		return s.Reference(ctx)
 	}
-	return s.establish(ctx, rpc.ReferenceKindForTag(tag))
+	return s.establish(ctx, rpc.ReferenceKindForTag(tag), rpcengine.ReferencePurposeStandaloneAnchor)
 }
 
-// establish runs one stage round on a fresh invocation: the stage reads the
-// frozen basis's members and corroboration snapshot, exactly the inputs the
-// invocation path's business reads establish against. The stage returns the
-// evidence the round formed beside its error, so a failed round's partial
-// evidence stays visible on the reference the caller sees.
-func (s *StrictHeadService) establish(ctx context.Context, kind rpc.ReferenceKind) (rpc.ReferenceEvidence, error) {
-	snap, _ := s.snapshot()
+// BusinessReferenceForTag establishes the pin for a composite business read.
+// It shares the standalone query's stage and frozen construction rule, while
+// permitting honest Forwarded evidence on a singleton basis.
+func (s *ReferenceService) BusinessReferenceForTag(ctx context.Context, tag string) (rpc.ReferenceEvidence, error) {
+	return s.establish(ctx, rpc.ReferenceKindForTag(tag), rpcengine.ReferencePurposeBusiness)
+}
+
+// establish runs the shared stage on a fresh invocation with the current
+// members and this service's fixed rule. The stage returns its evidence
+// beside the error, preserving partial evidence from failed rounds.
+func (s *ReferenceService) establish(ctx context.Context, kind rpc.ReferenceKind, purpose rpcengine.ReferencePurpose) (rpc.ReferenceEvidence, error) {
 	refs := s.stage.memberRefs()
-	evidence, err := s.stage.Establish(ctx, facadeInvocation(ctx, refs, snap), rpc.ReferenceRequest{Kind: kind})
-	if err != nil {
-		if evidence == nil {
-			return rpc.ReferenceEvidence{}, err
-		}
-		return *evidence, err
-	}
-	if evidence == nil {
-		return rpc.ReferenceEvidence{}, fmt.Errorf("anchor: establishment completed without evidence: %w", rpc.ErrReferenceRequired)
-	}
-	return *evidence, nil
-}
-
-// FinalizedHeadService establishes a common reference from provider-reported
-// finalized views through the client's finalized-strategy stage. The strict
-// levels still ride the strict head algorithm through the same stage.
-type FinalizedHeadService struct {
-	stage *ReferenceStage
-}
-
-// NewFinalizedHeadService builds the common finalized-reference service over
-// the shared stage. The stage's strategy (finalized preset with its lag
-// bound) and the composition-tuned collect timeout are the stage's own.
-func NewFinalizedHeadService(stage *ReferenceStage) *FinalizedHeadService {
-	return &FinalizedHeadService{stage: stage}
-}
-
-// Reference establishes the finalized reference: the finalized strategy pins
-// the default reference at the finalized level — the conservative preset's
-// whole point.
-func (s *FinalizedHeadService) Reference(ctx context.Context) (rpc.ReferenceEvidence, error) {
-	return s.establish(ctx, rpc.ReferenceLatest)
-}
-
-// ReferenceForTag routes default/latest and finalized through the finalized
-// candidate-selection and confirmation algorithm; safe uses the strict safe
-// algorithm. The evidence tag records the requested intent, not independent
-// proof of the actual chain level. Other tags fail.
-func (s *FinalizedHeadService) ReferenceForTag(ctx context.Context, tag string) (rpc.ReferenceEvidence, error) {
-	if tag == "" || tag == "latest" {
-		return s.Reference(ctx)
-	}
-	return s.establish(ctx, rpc.ReferenceKindForTag(tag))
-}
-
-func (s *FinalizedHeadService) establish(ctx context.Context, kind rpc.ReferenceKind) (rpc.ReferenceEvidence, error) {
-	// The finalized preset defaults to the majority floor with the
-	// documented lag bound: the stage's own configuration.
-	snap := rpc.Corroboration{Mode: rpc.CorroborationMajority, Floor: 2}
-	refs := s.stage.memberRefs()
-	evidence, err := s.stage.Establish(ctx, facadeInvocation(ctx, refs, snap), rpc.ReferenceRequest{Kind: kind})
+	evidence, err := s.stage.establish(ctx, facadeInvocation(ctx, refs, s.rule), rpc.ReferenceRequest{Kind: kind}, purpose)
 	if err != nil {
 		if evidence == nil {
 			return rpc.ReferenceEvidence{}, err
@@ -198,10 +122,10 @@ func (s *FinalizedHeadService) establish(ctx context.Context, kind rpc.Reference
 // establish round. When the operation's context carries a material
 // collector, the round's raw responses record into it — the establishment
 // is this call's material like any other source round.
-func facadeInvocation(ctx context.Context, refs []rpc.SourceRef, snap rpc.Corroboration) rpc.Invocation {
-	opts := []rpc.InvocationOption(nil)
+func facadeInvocation(ctx context.Context, refs []rpc.SourceRef, snap rpcengine.Corroboration) rpcengine.Invocation {
+	opts := []rpcengine.InvocationOption(nil)
 	if collector := uncertain.CollectorFromContext(ctx); collector != nil {
-		opts = []rpc.InvocationOption{rpc.WithInvocationCapture(collector.InvocationCapture())}
+		opts = []rpcengine.InvocationOption{rpcengine.WithInvocationCapture(collector)}
 	}
-	return rpc.NewInvocation(rpc.NewInvocationID(), rpc.FreezeBasis(refs, snap), opts...)
+	return rpcengine.NewInvocation(rpcengine.NewInvocationID(), rpcengine.FreezeBasis(refs, snap), opts...)
 }

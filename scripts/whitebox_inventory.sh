@@ -17,7 +17,7 @@ set -euo pipefail
 
 packages=("$@")
 if [ ${#packages[@]} -eq 0 ]; then
-    packages=(rpc rpc/methods pool aggregator internal/runtime)
+    packages=(rpc internal/rpcengine internal/methods internal/pool internal/aggregator internal/runtime)
 fi
 
 for pkg in "${packages[@]}"; do

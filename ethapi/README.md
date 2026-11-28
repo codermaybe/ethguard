@@ -1,45 +1,51 @@
-# ethapi：前置增强 + 官方兜底
+# ethapi：标准数据模型与设计约束
 
-`types.gen.go` 是生成产物。理解它应先读前置增强、生成原则和官方定义；修改也从这三处开始，再重新生成。
+`ethapi` 是 EthGuard 的标准数据模型包，提供 Ethereum Execution APIs 的 Request／Response 类型、标量、严格 JSON 构造器与编解码。
 
-## 两层职责
+- **职责边界**：只承载标准模型与严格校验，不承载网络 RPC 调用（归 `ethguard.Client`）、不依赖执行引擎或传输层、不引入 `go-ethereum` 类型（未来 geth 类型转换归独立 `ethadapter`）。
+- **使用方式**：普通调用方直接使用已提交的 `types.gen.go`，无需运行生成器或联网。
 
-**前置增强**显式处理固定官方标准中的冲突和缺失。原始定义保持不变，修复或补充须说明来源、作用对象、修改内容、依据、验证和退出条件。所有未增强的定义由固定官方 schema 决定。
-
-**官方兜底**由通用生成器忠实实现增强后的有效 schema：类型、字段、required、nullable、值约束和组合分支均来自定义。生成器不自行补方法规则，构造器不通过隐含转换扩大或缩小输入范围。合法值的表示政策须与接受域分开说明。
-
-```text
-固定官方原件 ── 显式修复／补充 ── 有效 schema
-                                  │
-                              通用生成原则
-                                  │
-                         types.gen.go + types.audit.json
+```go
+quantity, err := ethapi.NewQuantity(json.RawMessage(`"0x1"`))
 ```
 
-运行时的 provider 输入兼容由方法前置处理负责；它处理实际输入，标准增强处理定义，两者分别审计。方法绑定、内容承诺和多源保证由原有方法／对象模块负责。
+## 设计原则与核心约束
 
-## 阅读入口
+1. **生成物只读**：`types.gen.go` 与 `types.audit.json` 由 `internal/wiregen` 离线生成，**严禁手工修改生成文件**，也不得在调用方手写平行 DTO 绕开本包。
+2. **两层定义、权威清晰**：
+   - **官方原件只读**（固定 commit 的 Execution APIs 定义）作为标准锚点；
+   - **审定修正（Overlay）** 显式记录依据与退出条件，只在官方定义存在缺陷或滞后于已定案协议／主网事实时提供**临时覆盖**，不把项目修正冒称为原始官方要求；上游追平后须审阅退休。
+3. **标准校验 vs. 表示政策 vs. 运行时兼容三者分离**：
+   - **接受域（标准校验）**：公开 `New…` 构造器严格执行有效 schema（字段存在性、required／nullable、`oneOf`/`anyOf`、数组与精确数值约束）；例如 `"0x01"` 不是合法 QUANTITY、奇数位不是合法 DATA。
+   - **表示政策**：仅作用于已通过严格校验的合法输入（例如地址小写化），绝不借表示转换放宽非法输入。
+   - **有限兼容**：Provider 的大小写或历史拼写兼容属于调用端具名准备步骤，兼容产出仍须进入严格构造器；**前置兼容层永远不是规范**。
+4. **不变量边界**：
+   - 直接构造 Go 结构体须由调用者自行维持相同不变量；`MarshalJSON` 编码既有值，不承诺重新执行完整 schema 校验（保留 union 分支选择与开放请求 extras 校验）。
+   - `ValidateCreateAccessListResult(v)` 可直接检查 AccessList 结果值的完整方法根约束。其接受结果等价于将 `v.MarshalJSON()` 交给 `NewCreateAccessListResult`，但不编码或修改 `v`。它不恢复原始字段存在性、别名顺序或 provider 扩展，也不承担 JSON 安全预算；目前仅开放这一方法根试点。
+   - 模型构造通过只证明数据形态符合有效 schema，不替代请求绑定、区块／交易／收据内容承诺或多源裁决。
+   - 下游消费保证按入口区分：typed Block／Header 要求相应完整模型；区块的 reference 分支只提供 number／hash 身份合同，通用 `Call(..., false)` 也能触达它，其裁决成功不意味着返回了完整官方 Block（见[消费测试](../internal/verification/facade/standard_block_contract_test.go)）。
+5. **依赖与构建红线**：
+   - 允许依赖方向固定为 `methods/ethobject → ethapi → ethcodec`；`ethcodec` 不得反向导入 `ethapi`，`internal/wiregen` 不得导入运行时执行包；
+   - 生产运行时 `executionapi.Read()`／`ReadOriginal()` 零 Manifest 加载、零 `types.audit.json` 反读。
 
-| 要了解什么 | 唯一入口 |
+## 权威材料索引
+
+| 材料 | 唯一职责 |
 | --- | --- |
-| 官方来源、版本与原始定义 | [internal/spec](../internal/spec/README.md)：`VERSION`、`SOURCE.json`、`methods.json`、`requests.json` |
-| 已有前置修复 | [errata](../internal/spec/errata/) 与 [executionapi](../internal/executionapi/bundle.go)：`ReadOriginal` 保留原件，`Read` 形成有效定义 |
-| 实际输入的有限兼容 | 各入口及 [ethobject](../internal/ethobject/)：选定字段后形成候选，保留原始来源证据；不混入标准勘误 |
-| 生成范围与表示政策 | [policy.go](../rpc/internal/wire/gen/policy.go) |
-| schema 如何成为 Go 类型与构造校验 | [schema.go](../rpc/internal/wire/gen/schema.go)、[model.go](../rpc/internal/wire/gen/model.go)、[walk.go](../rpc/internal/wire/gen/walk.go)、[emit.go](../rpc/internal/wire/gen/emit.go) |
-| 详细合同与独立验证要求 | [wire-codegen](../docs/design/wire-codegen.md) |
+| [固定来源](../internal/spec/README.md) | 官方版本、原件与向量身份 |
+| [生成契约 Manifest](../internal/executionapi/manifest.json) | 唯一人写的提取／生成范围、命名、别名与字段序契约 |
+| [审定修正 Overlay](../internal/spec/errata/README.md) | 显式结构补丁、DATA 规则与退出条件 |
+| [审计总账](types.audit.json) | 实际类型来源、逐节点约束、Overlay 应用与覆盖（不推断运行时消费） |
+| [完整工程合同](../docs/design/wire-codegen.md) | 提取、Overlay、编译、离线／在线同步升级与门禁规范 |
+| [消费者契约测试](../internal/methods/standard_consumption_test.go) | 已注册读方法的实际执行与严格输出验证 |
 
-遇到生成缺失，先区分官方无定义、已有定义错误、尚未选择生成、生成器不支持约束。各自修复对应入口；缺少依据的定义保持未覆盖，不生成宽松替代。
+## 维护与验证
 
-## 修改与验证
-
-修改前置规则或通用生成器后，在仓库根目录执行：
+修改 Manifest、Overlay 或编译器后，在仓库根目录离线重生成并验证：
 
 ```sh
 go generate ./ethapi
-go test ./internal/executionapi ./rpc/internal/wire/gen ./ethapi
+go test ./internal/executionapi ./internal/wiregen ./ethapi
 ```
 
-`types.audit.json`记录来源、增强身份、覆盖和实际生成政策。验收同时检查原始／有效 schema 的独立预期、真实消费者以及重新生成的一致性；生成新鲜度和构造往返各自只证明部分合同。
-
-公开 `New…` 构造器检查相应定义。直接构造 Go 值仍须保持相同不变量；该调用方式和编码职责详见生成合同。
+普通生成全程离线且确定；上游同步（`cmd/specsync`）、双向差异检查（`cmd/specdiff`）与发布门禁见[完整工程合同](../docs/design/wire-codegen.md)。

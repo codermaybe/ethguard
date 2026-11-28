@@ -9,15 +9,15 @@ import (
 	"testing"
 	"time"
 
+	"github.com/codermaybe/ethguard"
+	"github.com/codermaybe/ethguard/internal/methods"
+	"github.com/codermaybe/ethguard/internal/rpcengine"
+	"github.com/codermaybe/ethguard/internal/testkit/ethapitest"
+	"github.com/codermaybe/ethguard/rpc"
+	"github.com/codermaybe/ethguard/rpctest"
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
-
-	"github.com/codermaybe/ethguard"
-	"github.com/codermaybe/ethguard/internal/testkit/ethapitest"
-	"github.com/codermaybe/ethguard/rpc"
-	"github.com/codermaybe/ethguard/rpc/methods"
-	"github.com/codermaybe/ethguard/rpctest"
 )
 
 // TestCallRevertRule4eMatrix is the decision-0039 matrix for eth_call.
@@ -168,7 +168,7 @@ type rule4eCase struct {
 
 func assertRule4e(t *testing.T, tc rule4eCase) {
 	t.Helper()
-	snap := rpc.Corroboration{Mode: rpc.CorroborationMajority, Floor: 2}
+	snap := rpcengine.Corroboration{Mode: rpc.CorroborationMajority, Floor: 2}
 	adapter, nodes := fleet(t, len(tc.answers))
 	headFixture(nodes)
 	for i, answer := range tc.answers {
@@ -180,7 +180,7 @@ func assertRule4e(t *testing.T, tc rule4eCase) {
 	if planErr != nil {
 		t.Fatal(planErr)
 	}
-	resolver, ok := plan.Resolver.(rpc.CorroboratingPolicy)
+	resolver, ok := plan.Resolver.(rpcengine.CorroboratingResolver)
 	if !ok {
 		t.Fatal("eth_call lost ResolveCorroborated")
 	}

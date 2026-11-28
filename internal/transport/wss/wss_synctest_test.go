@@ -10,8 +10,8 @@ import (
 	"testing/synctest"
 	"time"
 
-	"github.com/codermaybe/ethguard/internal/rpcwire"
 	"github.com/codermaybe/ethguard/internal/transport"
+	"github.com/codermaybe/ethguard/internal/transport/streamrpc"
 )
 
 func newPipeConn(t *testing.T) (*Conn, net.Conn) {
@@ -39,7 +39,7 @@ func TestWriteDeadlineUsesFakeTimeAndUnblocksBlockedWrite(t *testing.T) {
 		defer cancel()
 
 		started := time.Now()
-		err := conn.WriteMessage(ctx, []byte(`{"jsonrpc":"2.0"}`))
+		_, err := conn.WriteMessage(ctx, []byte(`{"jsonrpc":"2.0"}`))
 		if !errors.Is(err, os.ErrDeadlineExceeded) {
 			t.Fatalf("err = %v, want os.ErrDeadlineExceeded", err)
 		}
@@ -54,14 +54,8 @@ func TestTransportWriteDeadlineAbortsPendingAndRejectsLaterCalls(t *testing.T) {
 		const deadline = 5 * time.Second
 
 		conn, peer := newPipeConn(t)
-		transportValue := &Transport{
-			ws:      conn,
-			ids:     rpcwire.NewIDGen(),
-			limit:   DefaultReadLimit,
-			pending: make(map[string]chan frameResult),
-		}
+		transportValue := &Transport{Transport: streamrpc.New(conn, streamrpc.Options{})}
 		t.Cleanup(transportValue.Close)
-		go transportValue.readLoop()
 
 		firstFrameRead := make(chan struct{})
 		go func() {
@@ -101,9 +95,6 @@ func TestTransportWriteDeadlineAbortsPendingAndRejectsLaterCalls(t *testing.T) {
 		synctest.Wait()
 		if err := <-firstResult; !errors.Is(err, transport.ErrConnectionClosed) {
 			t.Fatalf("pending call after write deadline = %v, want transport.ErrConnectionClosed", err)
-		}
-		if n := transportValue.pendingCount(); n != 0 {
-			t.Fatalf("abort left %d pending calls", n)
 		}
 		if err := transportValue.Call(t.Context(), "eth_after").Decode(&result); !errors.Is(err, ErrTransportClosed) {
 			t.Fatalf("call after write deadline = %v, want ErrTransportClosed", err)

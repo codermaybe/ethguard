@@ -1,0 +1,136 @@
+package pool
+
+import (
+	"context"
+	"errors"
+	"strings"
+	"testing"
+
+	upstream "github.com/codermaybe/ethguard/internal/transport"
+	nativehttp "github.com/codermaybe/ethguard/internal/transport/http"
+	"github.com/codermaybe/ethguard/internal/transport/wss"
+)
+
+// NewWithMembers is the only membership admission path: it validates the
+// configured set once and the pool never changes it afterwards.
+func TestNewWithMembersAdmitsFixedMembership(t *testing.T) {
+	p, err := NewWithMembers(0, []Member{
+		{Name: "a", URL: "https://a.example"},
+		{Name: "b", URL: "https://b.example"},
+	})
+	if err != nil {
+		t.Fatalf("NewWithMembers: %v", err)
+	}
+	defer p.Close()
+
+	if got := p.Len(); got != 2 {
+		t.Fatalf("Len = %d, want 2", got)
+	}
+	sources := p.Sources()
+	if len(sources) != 2 {
+		t.Fatalf("Sources = %d, want 2", len(sources))
+	}
+	for _, src := range sources {
+		resolved, ok := p.SourceByID(src.ID())
+		if !ok || resolved != src {
+			t.Fatalf("SourceByID(%q) = %v, %v; want the configured object", src.ID(), resolved, ok)
+		}
+	}
+	if _, ok := p.SourceByID("https://missing.example"); ok {
+		t.Fatal("SourceByID resolved an unconfigured endpoint")
+	}
+
+	sources[0] = nil
+	if p.Sources()[0] == nil {
+		t.Fatal("Sources leaked the pool's member slice")
+	}
+}
+
+func TestNewWithMembersDeduplicatesEndpointsAndRejectsNameCollisions(t *testing.T) {
+	p, err := NewWithMembers(0, []Member{
+		{Name: "a", URL: "https://a.example"},
+		{Name: "other", URL: "https://a.example/"},
+	})
+	if err != nil {
+		t.Fatalf("NewWithMembers duplicate endpoint: %v", err)
+	}
+	if got := p.Len(); got != 1 {
+		t.Fatalf("Len = %d, want endpoint identity to collapse the duplicate", got)
+	}
+	p.Close()
+
+	if _, err := NewWithMembers(0, []Member{
+		{Name: "a", URL: "https://a.example"},
+		{Name: "a", URL: "https://b.example"},
+	}); err == nil {
+		t.Fatal("expected duplicate source name to fail construction")
+	}
+	if _, err := NewWithMembers(0, []Member{{Name: "bad", URL: "ftp://example.com"}}); err == nil {
+		t.Fatal("expected an unsupported URL scheme to fail construction")
+	}
+}
+
+func TestNewWithMembersRejectsDuplicateEndpointWithExplicitAdapter(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		first   upstream.Dialer
+		second  upstream.Dialer
+		wantErr string
+	}{
+		{name: "native then wss", first: nativehttp.NewDialer(), second: wss.NewDialer(), wantErr: "explicit adapter"},
+		{name: "wss then native", first: wss.NewDialer(), second: nativehttp.NewDialer(), wantErr: "explicit adapter"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := NewWithMembers(0, []Member{
+				{Name: "first", URL: "https://same.example", Dialer: tc.first},
+				{Name: "second", URL: "https://same.example/", Dialer: tc.second},
+			})
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("error = %v, want %q", err, tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestSubscriptionSourcesReturnsDeclaredMembersAsCopy(t *testing.T) {
+	p, err := NewWithMembers(0, []Member{
+		{Name: "http", URL: "https://a.example"},
+		{Name: "ws-a", URL: "ws://a.example", Dialer: wss.NewDialer()},
+		{Name: "ws-b", URL: "wss://b.example", Dialer: wss.NewDialer()},
+	})
+	if err != nil {
+		t.Fatalf("NewWithMembers: %v", err)
+	}
+	defer p.Close()
+	sources, err := p.SubscriptionSources()
+	if err != nil {
+		t.Fatalf("SubscriptionSources: %v", err)
+	}
+	if len(sources) != 2 || sources[0].Name() != "ws-a" || sources[1].Name() != "ws-b" {
+		t.Fatalf("sources = %#v, want ws-a/ws-b", sources)
+	}
+	sources[0] = nil
+	again, err := p.SubscriptionSources()
+	if err != nil || len(again) != 2 || again[0] == nil {
+		t.Fatalf("snapshot was not copied: %#v, err=%v", again, err)
+	}
+}
+
+func TestClosedPoolKeepsConfiguredMembersAddressable(t *testing.T) {
+	p, err := NewWithMembers(0, []Member{{Name: "a", URL: "https://a.example"}})
+	if err != nil {
+		t.Fatalf("NewWithMembers: %v", err)
+	}
+	src := p.VotingMembers()[0]
+	p.Close()
+
+	if got, ok := p.SourceByID(src.ID()); !ok || got != src {
+		t.Fatalf("SourceByID after Close = %v, %v; want the closed member", got, ok)
+	}
+	if !src.isClosed() {
+		t.Fatal("expected Close to close the configured member")
+	}
+	if _, err := p.CollectVoting(context.Background(), "eth_blockNumber", nil, CollectOptions{}); !errors.Is(err, ErrClosed) {
+		t.Fatalf("CollectVoting after Close = %v, want ErrClosed", err)
+	}
+}

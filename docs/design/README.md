@@ -1,12 +1,12 @@
 # 文档导航与维护规则
 
-状态：现行文档系列已保存，首轮整理与审计修复已推进。新会话先读路线图，按公共数据管线→逐方法精调→运行期专题→发布验收的顺序接续；当前基线、验证边界和未决项由路线图维护。本系列按当前知识归属组织，已合并重叠的流程、交易、门槛、捕获与工具说明。后续文档整理继续遵循先明确合同、再实施代码的顺序，事实更新不自动改变生产合同或代表整体验收通过。
+状态：本系列按当前知识归属组织，已合并重叠的流程、交易、门槛、捕获与工具说明。新会话先读路线图的当前状态和未完成事项，再查对应模块合同；旧公共数据管线、逐方法和性能阶段的记录供历史追溯，不作为重新执行的顺序。当前架构、SDK 边界、验证范围和接续事项分别由路线图及其链接的正式合同维护。事实更新不自动改变生产合同或代表整体验收通过。
 
 ## 1. 从问题找到唯一负责人
 
 | 问题 | 主文档 |
 | --- | --- |
-| 当前能力、剩余阶段和执行顺序 | [项目路线图](project-roadmap.md) |
+| 当前架构、验收状态和独立未决事项 | [项目路线图](project-roadmap.md) |
 | 模块、依赖、ReadPlan、resolver与canonical读取流程 | [代码库拓扑与执行合同](codebase-topology.md) |
 | 方法保证、业务门槛、有限兼容与独立交易规则 | [方法合同](method-contracts.md) |
 | 受保护Value、规范编码、typed与材料通道 | [返回值合同](return-value-design.md) |
@@ -16,9 +16,10 @@
 | 实际装配的只读投影 | [生成方法索引](method-rules.md)，禁止手改 |
 | 公开类型与业务兼容目标 | [兼容政策](go-ethereum-compatibility-policy.md) |
 | 已有入口与逐方法／传输证据缺口 | [覆盖清单](method-transport-coverage.md) |
+| 统一接入平面、极简配置、IPC 与 `ethadapter` 设计及验收 | [接入平面、IPC 与适配器合同](access-plane-ipc-adapter.md)（S0–S6 已实施并通过本地验收；S4 Windows 真实运行待 CI） |
 | HTTP协议与adapter生命周期 | [Transport合同](transport-contract.md) |
 | raw WSS握手／帧／通知与连接 | [WSS wire合同](wss-wire-contract.md) |
-| NewHead连续路径；Logs完整批次、证明与资源合同；receipts及S1待办 | [订阅合同](subscription-contract.md) |
+| NewHead／Logs／Receipts连续路径、证明与资源合同；默认策略、终态和桥接所有权 | [订阅合同](subscription-contract.md) |
 | 方法验证、场景、capture／golden、Anvil、工具与材料保留 | [验证与证据合同](method-verification-pipeline.md) |
 | 固定canary plan、manifest/report/recheck及观察状态 | [Live canary合同](live-canary-contract.md) |
 | 正式发布门禁、固定工具、产物与失败处置 | [发布合同](release-contract.md) |
@@ -35,7 +36,7 @@
 
 method-rules.md、ethapi生成代码／audit、固定schema、JSON report/schema和golden保留各自生成或验证流程。文档整理不手改这些资产。包README只介绍入口和职责，具体规则集中在本系列，避免复制第二份合同。
 
-## 4. 本次整理的归属变化
+## 4. 文档组织基线
 
 | 已合并内容 | 当前负责人 |
 | --- | --- |

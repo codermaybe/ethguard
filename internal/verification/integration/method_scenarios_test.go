@@ -15,8 +15,8 @@ import (
 	ethereum "github.com/ethereum/go-ethereum"
 
 	"github.com/codermaybe/ethguard"
+	"github.com/codermaybe/ethguard/internal/methods"
 	"github.com/codermaybe/ethguard/rpc"
-	"github.com/codermaybe/ethguard/rpc/methods"
 )
 
 // Every test below owns its scenario rows and invokes each one explicitly:

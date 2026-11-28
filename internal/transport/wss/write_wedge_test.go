@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/codermaybe/ethguard/internal/rpcwire"
+	"github.com/codermaybe/ethguard/internal/transport/streamrpc"
 )
 
 // gatedWriteConn stalls inside the first Write until the test opens the
@@ -53,14 +53,8 @@ func TestDeadlineCallerSurvivesStalledWriter(t *testing.T) {
 		gate:    make(chan struct{}),
 	}
 	result.conn = gated
-	tr := &Transport{
-		ws:      newConn(result, DefaultReadLimit),
-		ids:     rpcwire.NewIDGen(),
-		limit:   DefaultReadLimit,
-		pending: make(map[string]chan frameResult),
-	}
+	tr := &Transport{Transport: streamrpc.New(newConn(result, DefaultReadLimit), streamrpc.Options{})}
 	t.Cleanup(tr.Close)
-	go tr.readLoop()
 
 	stalled := make(chan error, 1)
 	go func() {

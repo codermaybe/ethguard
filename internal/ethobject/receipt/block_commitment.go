@@ -62,7 +62,7 @@ func VerifyBlockRows(header *types.Header, txs types.Transactions, raw json.RawM
 		if txs[i] == nil {
 			return nil, fmt.Errorf("receipt commitment: transaction %d is nil", i)
 		}
-		checked, r, err := DecodeWithCanonical(row)
+		checked, r, err := decodeWithCanonicalJSONChecked(row)
 		if err != nil {
 			return nil, fmt.Errorf("receipt commitment: receipt %d: %w", i, err)
 		}

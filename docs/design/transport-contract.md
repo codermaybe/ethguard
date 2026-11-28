@@ -19,8 +19,30 @@
 
 - `internal/transport` 是 Port-only 物理包：`Transport`、`Dialer`、`ErrBodyTooLarge`、
   `ErrConnectionClosed`。适配器实现不得进入该包。
-- native HTTP（`internal/transport/http`）是唯一生产 HTTP adapter。
+- native HTTP（`internal/transport/http`）是唯一生产 HTTP adapter。`internal/endpoint` 统一解析端点身份与拨号目标；`config.Normalize` 推导 transport、补齐诊断 id 并冻结相对 IPC 路径。HTTP(S) 使用原生 HTTP，WS(S) 使用 raw WebSocket；显式 transport 必须与端点匹配。不提供 HTTP adapter 单选开关或 dialer 注入。IPC 使用 Unix socket 或 Windows named pipe；Unix 实测已通过，Windows 实现与真实 pipe CI 用例已落地，本机仅完成 Windows 交叉编译／vet。
+- `BoundedSubscriberDialer` 声明是否支持有界订阅，pool 在构造期保存不可变能力快照，`SubscriptionSources` 不再按 URL scheme 筛选。实际建流仍校验 `BoundedSubscriber`；能力声明不触发拨号，也不随健康或重连改变订阅分母。无可订阅来源返回内部 `ErrNoSubscriptionSource`。
+- livecanary 新运行固定记录 native provenance；CLI／workflow 不提供 adapter 选择。历史 manifest 的 `HTTPAdapter` 与解析能力保留，geth 观察不能重标为 native 或重跑。
 - native 生产执行图不得链接 `ethclient`；具体 geth RPC client 仅存在于 `internal/testkit/gethoracle`／显式诊断工具等允许位置；公开业务签名使用生成模型，私有算法桥不承担 transport。
+
+### 共享双工连接合同
+
+`internal/transport/streamrpc` 独占双工 RPC pending/demux、通知队列与租约、绑定前缓存、建立取消及 graceful/abort；只依赖 `rpcwire`、中立 Port 与 `rpc`。WSS 和 IPC 通过 `MessageConn` 提供独立消息字节、物理写锁和立即 Close。
+
+`WriteMessage(ctx, payload) (written bool, err error)` 中 written 表示任何字节已落线。完整成功为 `(true,nil)`；只有发送前证明零写、返回精确 `ctx.Err()` 的取消保持连接健康。部分写、短写、物理错误（含实际写被取消期限打断而报告零字节）与 `(false,nil)` 违约均 abort。物理写取消回调在释放唯一写锁前收束，不能修改下一次写的 deadline；30s 为写等待上限，较短调用 deadline 优先。
+
+物理 Close 立即解除读写和锁等待；RPC Close 拒绝新调用、停止通知并清除 pre-bind，保留在途 unary 至结算后关闭物理连接。真实故障即使发生在 closing 期间仍可 abort，首次终止者独占失败原因。通知生产失败先排空 FIFO，显式退订／Close 丢弃未读并等待 pump；已交付租约由接收者释放恰好一次。
+
+### IPC 边界与平台
+
+`internal/transport/ipc` 只消费已冻结的绝对 Unix 路径或规范 pipe 拨号目标。Unix 使用标准库 `net.Dialer`；Windows 文件独占 `go-winio.DialPipeContext`，其他平台返回明确不支持错误。构造及端点归一不触发网络，后续 `cwd` 改变不改变目标。拨号前取消本地拒绝；拨号完成时发现取消则关闭刚取得的连接，建流成功后不把拨号 context 绑定为连接生命周期。
+
+有界扫描器按顶层 JSON 对象的词法边界分帧，支持相邻对象、多行、空白分隔、分片及字符串转义；不按换行切分，也不承担 JSON-RPC 语义验证。顶层 batch／标量、容器失配、超过 32 层嵌套、截断 EOF 均终止连接；默认单消息上限为 32 MiB，超限保留 `ErrBodyTooLarge` 与 `ErrConnectionClosed`。每次交付独立切片，单消息容量不超过上限；固定 4 KiB 读取缓存及增长时的新旧分配不等于单消息长度，因此该上限不是进程 RSS 上限。消息之间的空白不累积保留，也不计入单消息预算；当前没有另设其总字节或耗时上限。因此持续空白流的读取工作量无界，但不会因累计保存空白而增长内存；这项抗恶意对端加固与单消息内存限界分别记账。
+
+写侧复制调用方 payload 后追加换行，分配前检查加一后的长度不会溢出 int，采用共享核的精确写进度合同。实际短写或物理超时立即终止；写取消回调必须在释放唯一写锁前退出。普通调用和订阅共用同一连接及唯一 RPC 状态机。
+
+2026-11-28 的本地验收覆盖真实 Unix socket 的乱序响应、协议错误 presence、取消、graceful Close、pre-bind 与 unary 共线，以及公开入口的单源 moving-tag、WSS+IPC 三类订阅、HTTP+IPC 单能力来源拒绝和相对路径冻结；定向 race 与 100000 次扫描器 fuzz 通过。Windows 测试二进制和 vet 交叉检查通过，真实 pipe 测试已加入 Windows CI，但本机没有 Windows 运行证据；这些结果也不构成各 execution 客户端的 IPC 互操作认证。
+
+同日 PR #13 首轮远端 Windows build／vet 和 streamrpc／IPC 整包 race 通过；后续 adapter 测试失败使显式 named pipe 步骤跳过，Windows job 整体仍失败。该结果与交叉编译及本地容量修复分开记账，详见[远端检查记录](access-plane-ipc-adapter.md#pr-13-首轮远端检查与容量修复2026-11-28)。
 
 ## 2. L1 条款（suite 逐条对应）
 

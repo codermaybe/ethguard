@@ -13,7 +13,7 @@ import (
 func testConfig(budget int) Config { return Config{BudgetBytes: budget} }
 
 func TestCollectorKeepsSourceFieldArraysAndMalformedResponses(t *testing.T) {
-	c := NewCollector(testConfig(DefaultBudget))
+	c := NewCollector(testConfig(1 << 20))
 	c.Record("response", "m", rpc.SourceRef{ID: "a"}, []byte(`{"vendor":1}`), "")
 	c.Record("response", "m", rpc.SourceRef{ID: "b"}, []byte(`{"vendor":1}`), "")
 	c.Record("response", "m", rpc.SourceRef{ID: "c"}, []byte(`{"vendor":`), "")
@@ -27,7 +27,7 @@ func TestCollectorKeepsSourceFieldArraysAndMalformedResponses(t *testing.T) {
 }
 
 func TestCollectorSnapshotIsDefensive(t *testing.T) {
-	c := NewCollector(testConfig(DefaultBudget))
+	c := NewCollector(testConfig(1 << 20))
 	c.Record("response", "m", rpc.SourceRef{ID: "a"}, []byte(`{"x":"before"}`), "")
 	s := c.Snapshot()
 	s.Fields[0].Value[0] = 'X'
@@ -78,7 +78,7 @@ func TestCollectorItemCapAndBudgetBound(t *testing.T) {
 }
 
 func TestCollectorRecordCapCountsRawAndFieldsTogether(t *testing.T) {
-	c := NewCollector(testConfig(DefaultBudget))
+	c := NewCollector(testConfig(1 << 20))
 	payload := []byte(`{"k1":1,"k2":2,"k3":3,"k4":4,"k5":5,"k6":6}`)
 	// Six fields per value-bearing response: 40 responses hit 240 records,
 	// the 41st hits the 256 cap mid-expansion, and beyond that only

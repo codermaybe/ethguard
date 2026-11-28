@@ -63,9 +63,6 @@ func TestErrataOnlyChangesFourRequiredQueryValues(t *testing.T) {
 	if audit.SHA256 != digest(raw) || audit.InputSchemaSHA256 != digest(original.Results[method]) || audit.OutputSchemaSHA256 != digest(effective.Results[method]) {
 		t.Fatalf("audit does not identify actual inputs and output: %+v", audit)
 	}
-	if audit.InputSchemaSHA256 != e.InputSchemaSHA256 || audit.OutputSchemaSHA256 != e.OutputSchemaSHA256 {
-		t.Fatal("applied hashes differ from reviewed correction")
-	}
 	want := decodeSchemaObject(t, original.Results[method])
 	actual := decodeSchemaObject(t, effective.Results[method])
 	props := actual["oneOf"].([]any)[1].(map[string]any)["properties"].(map[string]any)
@@ -88,7 +85,7 @@ func TestErrataOnlyChangesFourRequiredQueryValues(t *testing.T) {
 	if !reflect.DeepEqual(original.Requests, effective.Requests) || !bytes.Equal(before, spec.MethodsJSON()) {
 		t.Fatal("request or raw source was changed")
 	}
-	t.Logf("%s: source=%s input=%s patch=%s output=%s", e.ID, e.SourceCommit, audit.InputSchemaSHA256, audit.SHA256, audit.OutputSchemaSHA256)
+	t.Logf("%s: source=%s input=%s patch=%s output=%s", e.ID, effective.Source.Commit, audit.InputSchemaSHA256, audit.SHA256, audit.OutputSchemaSHA256)
 }
 
 func TestErrataRejectSourceDriftAndInvalidAuditAtomically(t *testing.T) {
@@ -96,24 +93,17 @@ func TestErrataRejectSourceDriftAndInvalidAuditAtomically(t *testing.T) {
 		name, want string
 		change     func(*Bundle, *erratum)
 	}{
-		{"source version", "source pin changed", func(_ *Bundle, e *erratum) { e.SourceVersion = "future" }},
-		{"source commit", "source pin changed", func(_ *Bundle, e *erratum) { e.SourceCommit = strings.Repeat("f", 40) }},
-		{"required changed", "input schema digest", func(b *Bundle, _ *erratum) {
+		{"required changed", "guards", func(b *Bundle, _ *erratum) {
 			b.Results["eth_getTransactionByHash"] = bytes.Replace(b.Results["eth_getTransactionByHash"], []byte(`"blockTimestamp",`), []byte(`"unrelated",`), 1)
 		}},
-		{"new keyword", "input schema digest", func(b *Bundle, _ *erratum) {
-			raw := b.Results["eth_getTransactionByHash"]
-			b.Results["eth_getTransactionByHash"] = append([]byte(`{"newKeyword":true,`), raw[1:]...)
-		}},
-		{"upstream fixed", "input schema digest", func(b *Bundle, _ *erratum) {
+		{"upstream fixed", "already satisfied", func(b *Bundle, _ *erratum) {
 			fixed, err := Read()
 			if err != nil {
 				t.Fatal(err)
 			}
 			b.Results["eth_getTransactionByHash"] = fixed.Results["eth_getTransactionByHash"]
 		}},
-		{"output changed", "output schema digest", func(_ *Bundle, e *erratum) { e.OutputSchemaSHA256 = strings.Repeat("0", 64) }},
-		{"test failed", "apply RFC 6902 patch", func(_ *Bundle, e *erratum) {
+		{"test failed", "does not change the schema document", func(_ *Bundle, e *erratum) {
 			e.Patch = json.RawMessage(`[{"op":"test","path":"/oneOf/1/properties/blockHash/type","value":"number"}]`)
 		}},
 		{"negative index", "apply RFC 6902 patch", func(_ *Bundle, e *erratum) {
@@ -131,9 +121,9 @@ func TestErrataRejectSourceDriftAndInvalidAuditAtomically(t *testing.T) {
 		{"missing exit", "incomplete audit metadata", func(_ *Bundle, e *erratum) { e.RetireWhen = "" }},
 		{"missing basis", "incomplete audit metadata", func(_ *Bundle, e *erratum) { e.References = nil }},
 		{"invalid basis", "absolute HTTPS URL", func(_ *Bundle, e *erratum) { e.References = []string{"local-note"} }},
-		{"missing target", "does not exist", func(_ *Bundle, e *erratum) { e.Target.Method = "eth_missing" }},
-		{"bad target kind", "target part", func(_ *Bundle, e *erratum) { e.Target.Part = "response" }},
-		{"request index absent", "parameter does not exist", func(_ *Bundle, e *erratum) { e.Target.Part = "request" }},
+		{"missing target", "invalid schema JSON", func(_ *Bundle, e *erratum) { e.Target.Method = "eth_missing" }},
+		{"bad target kind", "invalid schema part", func(_ *Bundle, e *erratum) { e.Target.Part = "response" }},
+		{"request index absent", "requires nonnegative parameter", func(_ *Bundle, e *erratum) { e.Target.Part = "request" }},
 		{"result parameter", "cannot select", func(_ *Bundle, e *erratum) { i := 0; e.Target.Parameter = &i }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -170,7 +160,8 @@ func TestErrataRejectDuplicateApplicationAndLaterFailure(t *testing.T) {
 	e, _ := pendingErratum(t)
 	files := testErrataFiles(t, e)
 	e.ID = "later-invalid"
-	e.InputSchemaSHA256 = strings.Repeat("0", 64)
+	e.DependsOn = []string{"transaction-query-pending-context"}
+	e.Target.Method = "eth_missing"
 	files["errata/z-later.json"] = &fstest.MapFile{Data: mustJSON(t, e)}
 	bundle, err = ReadOriginal()
 	if err != nil {
@@ -198,8 +189,8 @@ func TestErrataRequestTargetKeepsParameterDescriptorsAndResults(t *testing.T) {
 	bundle.Requests["eth_call"][0].Schema = json.RawMessage(original)
 	paramsBefore := append([]Parameter(nil), bundle.Requests["eth_call"]...)
 	resultsBefore := mustJSON(t, bundle.Results)
-	e.InputSchemaSHA256 = digest([]byte(original))
-	e.OutputSchemaSHA256 = digest([]byte(expected))
+	e.Before = []schemaGuard{{Pointer: "/properties/old/type", Value: json.RawMessage(`"string"`)}, {Pointer: "/properties/new", Absent: true}}
+	e.After = []schemaGuard{{Pointer: "/properties/new/type", Value: json.RawMessage(`"string"`)}, {Pointer: "/properties/old", Absent: true}}
 	e.Patch = json.RawMessage(`[{"op":"test","path":"/properties/old/type","value":"string"},{"op":"move","from":"/properties/old","path":"/properties/new"}]`)
 	if err := applyErrata(&bundle, spec.SourceJSON(), testErrataFiles(t, e)); err != nil {
 		t.Fatal(err)

@@ -29,7 +29,7 @@ func TestValidateDomainMatchesEthguardNew(t *testing.T) {
 		want string // substring of the expected error; empty means valid
 	}{
 		{"missing upstreams", Config{}, "at least one upstream"},
-		{"missing id", Config{Upstreams: []Upstream{{Endpoint: "https://a.example"}}}, "id is required"},
+		{"omitted id", Config{Upstreams: []Upstream{{Endpoint: "https://a.example"}}}, ""},
 		{"whitespace id", Config{Upstreams: []Upstream{{ID: "  ", Endpoint: "https://a.example"}}}, "id is required"},
 		{"missing endpoint", Config{Upstreams: []Upstream{{ID: "a"}}}, "endpoint is required"},
 		{"whitespace endpoint", Config{Upstreams: []Upstream{{ID: "a", Endpoint: "  "}}}, "endpoint is required"},
@@ -38,8 +38,6 @@ func TestValidateDomainMatchesEthguardNew(t *testing.T) {
 			{ID: "b", Endpoint: "https://a.example"},
 		}}, "same member as upstreams[0]"},
 		{"unknown preset", Config{Upstreams: upstreams, Anchoring: &AnchoringConfig{Preset: "aggressive"}}, "must be strict or finalized"},
-		{"non-positive anchor ttl", Config{Upstreams: upstreams, AnchorCacheTTL: "-5s"}, "anchor_cache_ttl"},
-		{"garbage anchor ttl", Config{Upstreams: upstreams, AnchorCacheTTL: "soon"}, "anchor_cache_ttl"},
 		{"non-positive collect timeout", Config{Upstreams: upstreams, CollectTimeout: "0s"}, "collect_timeout"},
 		{"garbage collect timeout", Config{Upstreams: upstreams, CollectTimeout: "later"}, "collect_timeout"},
 		{"non-positive tip interval", Config{Upstreams: upstreams, TipTracking: &TipTrackingConfig{Interval: "0s"}}, "tip_tracking.interval"},
@@ -49,7 +47,6 @@ func TestValidateDomainMatchesEthguardNew(t *testing.T) {
 		{"valid every knob", Config{
 			Upstreams:      upstreams,
 			Anchoring:      &AnchoringConfig{Preset: "strict", MaxLag: 16},
-			AnchorCacheTTL: "30s",
 			TipTracking:    &TipTrackingConfig{Interval: "5s", MaxBehind: 8},
 			CollectTimeout: "10s",
 		}, ""},

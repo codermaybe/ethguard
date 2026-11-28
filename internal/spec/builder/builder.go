@@ -36,6 +36,9 @@ func Build(openRPC []byte, version string, methods []string) ([]byte, error) {
 		if method.Name == "" || method.Result == nil || len(method.Result.Schema) == 0 {
 			continue
 		}
+		if _, duplicate := available[method.Name]; duplicate {
+			return nil, fmt.Errorf("duplicate method %q", method.Name)
+		}
 		available[method.Name] = append(json.RawMessage(nil), method.Result.Schema...)
 	}
 	ordered := append([]string(nil), methods...)
@@ -68,10 +71,10 @@ func Build(openRPC []byte, version string, methods []string) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// BuildRequests preserves the parameter descriptors of every official eth_ RPC
-// and net_version. This is reference inventory, not an executable-method list:
+// BuildRequests preserves the parameter descriptors of official eth_ and net_
+// RPC methods. This is reference inventory, not an executable-method list:
 // catalog/ReadPlan continues to decide which methods callers can execute.
-func BuildRequests(openRPC []byte, version string) ([]byte, error) {
+func BuildRequests(openRPC []byte, version string, prefixes ...string) ([]byte, error) {
 	if version == "" {
 		return nil, errors.New("version is required")
 	}
@@ -84,9 +87,16 @@ func BuildRequests(openRPC []byte, version string) ([]byte, error) {
 	if err := json.Unmarshal(openRPC, &document); err != nil {
 		return nil, fmt.Errorf("openrpc: %w", err)
 	}
+	if len(prefixes) == 0 {
+		return nil, errors.New("request inventory prefixes are required")
+	}
 	requests := map[string]json.RawMessage{}
 	for _, method := range document.Methods {
-		if !strings.HasPrefix(method.Name, "eth_") && method.Name != "net_version" {
+		selected := false
+		for _, prefix := range prefixes {
+			selected = selected || strings.HasPrefix(method.Name, prefix)
+		}
+		if !selected {
 			continue
 		}
 		if _, duplicate := requests[method.Name]; duplicate {
@@ -102,7 +112,7 @@ func BuildRequests(openRPC []byte, version string) ([]byte, error) {
 		requests[method.Name] = method.Params
 	}
 	if len(requests) == 0 {
-		return nil, errors.New("no Ethereum request schemas")
+		return nil, errors.New("no selected request schemas")
 	}
 	output := struct {
 		Version  string                     `json:"version"`
@@ -115,52 +125,4 @@ func BuildRequests(openRPC []byte, version string) ([]byte, error) {
 		return nil, err
 	}
 	return buf.Bytes(), nil
-}
-
-// MethodsFromBundle returns the sorted method names from an existing
-// methods.json bundle, preserving the current support boundary during an
-// official release rebuild.
-func MethodsFromBundle(bundleJSON []byte) ([]string, error) {
-	var bundle struct {
-		Results map[string]json.RawMessage `json:"results"`
-	}
-	if err := json.Unmarshal(bundleJSON, &bundle); err != nil {
-		return nil, err
-	}
-	if len(bundle.Results) == 0 {
-		return nil, errors.New("bundle results is empty")
-	}
-	methods := make([]string, 0, len(bundle.Results))
-	for name := range bundle.Results {
-		methods = append(methods, name)
-	}
-	sort.Strings(methods)
-	return methods, nil
-}
-
-// MethodsFromList returns a sorted method set from a newline-delimited policy
-// file. Blank lines and lines beginning with # are ignored. The list is the
-// project's explicit standard boundary; result schemas still come only from
-// the official OpenRPC input passed to Build.
-func MethodsFromList(raw []byte) ([]string, error) {
-	seen := make(map[string]bool)
-	for _, line := range strings.Split(string(raw), "\n") {
-		name := strings.TrimSpace(line)
-		if name == "" || strings.HasPrefix(name, "#") {
-			continue
-		}
-		if seen[name] {
-			return nil, fmt.Errorf("duplicate method %q", name)
-		}
-		seen[name] = true
-	}
-	if len(seen) == 0 {
-		return nil, errors.New("method list is empty")
-	}
-	methods := make([]string, 0, len(seen))
-	for name := range seen {
-		methods = append(methods, name)
-	}
-	sort.Strings(methods)
-	return methods, nil
 }

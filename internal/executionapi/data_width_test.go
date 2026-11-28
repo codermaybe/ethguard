@@ -19,31 +19,32 @@ const (
 	wholeBytePattern    = "^0x([0-9a-f]{2})*$"
 )
 
-// The fixed source has 64 DATA definitions in 22 independently audited roots.
+// The fixed source has 69 DATA definitions in 23 independently audited roots.
 // These counts intentionally do not infer coverage from the patch inventory.
 var dataWidthRoots = map[string]int{
-	"result/eth_call":                  1,
-	"result/eth_getBlockByHash":        6,
-	"result/eth_getBlockByNumber":      6,
-	"result/eth_getBlockReceipts":      1,
-	"result/eth_getCode":               1,
-	"result/eth_getHeaderByHash":       1,
-	"result/eth_getHeaderByNumber":     1,
-	"result/eth_getLogs":               1,
-	"result/eth_getProof":              2,
-	"result/eth_getStorageAt":          1,
-	"result/eth_getTransactionByHash":  5,
-	"result/eth_getTransactionReceipt": 1,
-	"result/eth_simulateV1":            9,
-	"request/eth_call/0":               4,
-	"request/eth_createAccessList/0":   4,
-	"request/eth_estimateGas/0":        4,
-	"request/eth_fillTransaction/0":    4,
-	"request/eth_sendRawTransaction/0": 1,
-	"request/eth_sendTransaction/0":    4,
-	"request/eth_sign/1":               1,
-	"request/eth_signTransaction/0":    4,
-	"request/eth_simulateV1/0":         2,
+	"result/eth_call":                              1,
+	"result/eth_getBlockByHash":                    6,
+	"result/eth_getBlockByNumber":                  6,
+	"result/eth_getBlockReceipts":                  1,
+	"result/eth_getCode":                           1,
+	"result/eth_getHeaderByHash":                   1,
+	"result/eth_getHeaderByNumber":                 1,
+	"result/eth_getLogs":                           1,
+	"result/eth_getProof":                          2,
+	"result/eth_getStorageAt":                      1,
+	"result/eth_getTransactionByHash":              5,
+	"result/eth_getTransactionByBlockHashAndIndex": 5,
+	"result/eth_getTransactionReceipt":             1,
+	"result/eth_simulateV1":                        9,
+	"request/eth_call/0":                           4,
+	"request/eth_createAccessList/0":               4,
+	"request/eth_estimateGas/0":                    4,
+	"request/eth_fillTransaction/0":                4,
+	"request/eth_sendRawTransaction/0":             1,
+	"request/eth_sendTransaction/0":                4,
+	"request/eth_sign/1":                           1,
+	"request/eth_signTransaction/0":                4,
+	"request/eth_simulateV1/0":                     2,
 }
 
 func schemaRoots(bundle Bundle) map[string]json.RawMessage {
@@ -81,7 +82,7 @@ func selectedErrata(t *testing.T, dataWidth bool) fstest.MapFS {
 		t.Fatal(err)
 	}
 	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") || strings.HasPrefix(entry.Name(), "wire-data-") != dataWidth {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") || (entry.Name() == "data-whole-bytes.json") != dataWidth {
 			continue
 		}
 		name := "errata/" + entry.Name()
@@ -146,7 +147,7 @@ func TestDataWidthErrataCoversOnlyReviewedPatterns(t *testing.T) {
 	if !reflect.DeepEqual(got, dataWidthRoots) {
 		t.Fatalf("DATA roots:\n got %#v\nwant %#v", got, dataWidthRoots)
 	}
-	if got := len(selectedErrata(t, true)); got != len(dataWidthRoots) {
+	if got := len(selectedErrata(t, true)); got != 1 {
 		t.Fatalf("DATA errata documents=%d, want %d independently audited roots", got, len(dataWidthRoots))
 	}
 }
@@ -196,16 +197,16 @@ func TestEffectiveDataSchemasRequireWholeBytes(t *testing.T) {
 func TestDataWidthErrataRejectsLaterDriftAtomically(t *testing.T) {
 	bundle := beforeDataWidthErrata(t)
 	files := selectedErrata(t, true)
-	if len(files) != len(dataWidthRoots) {
+	if len(files) != 1 {
 		t.Fatalf("incomplete DATA correction inventory: %d", len(files))
 	}
 	// This target occurs late in the ordered inventory, after earlier patches
-	// would have succeeded. A byte-only drift still requires review.
+	// would have succeeded. A local semantic drift requires review.
 	params := bundle.Requests["eth_simulateV1"]
-	params[0].Schema = append(append(json.RawMessage(nil), params[0].Schema...), ' ')
+	params[0].Schema = bytes.Replace(params[0].Schema, []byte(`"pattern":"^0x[0-9a-f]*$"`), []byte(`"pattern":"^0x[0-9a-f]+$"`), 1)
 	before := mustJSON(t, bundle)
 	err := applyErrata(&bundle, spec.SourceJSON(), files)
-	if err == nil || !strings.Contains(err.Error(), "input schema digest") {
+	if err == nil || !strings.Contains(err.Error(), "does not match") {
 		t.Fatalf("DATA source drift error = %v", err)
 	}
 	if !bytes.Equal(before, mustJSON(t, bundle)) {

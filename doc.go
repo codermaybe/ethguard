@@ -17,14 +17,16 @@
 //	                       verification through public seams (not imported by
 //	                       production code)
 //	github.com/codermaybe/ethguard/config      — configuration types, samples, and loaders
-//	github.com/codermaybe/ethguard/pool        — multi-source RPC upstream management
+//	github.com/codermaybe/ethguard/internal/pool        — multi-source RPC upstream management
 //	                       and the minimal Transport Port
 //	github.com/codermaybe/ethguard/observe     — observability seam: one decision event per
 //	                       aggregate, log adapter, Prometheus adapter under
 //	                       observe/prometheus
-//	github.com/codermaybe/ethguard/aggregator  — prepare → collect → resolve orchestration
-//	github.com/codermaybe/ethguard/rpc         — generic request, decision, policy,
-//	                       and evidence model shared across modules
-//	github.com/codermaybe/ethguard/rpc/methods — one policy file per corroborated method
+//	github.com/codermaybe/ethguard/internal/aggregator  — prepare → collect → resolve orchestration
+//	github.com/codermaybe/ethguard/rpc         — public request, response, decision
+//	                       and evidence contracts with pure value helpers
+//	github.com/codermaybe/ethguard/internal/rpcengine — internal resolvers, plans
+//	                       and adjudication algorithms
+//	github.com/codermaybe/ethguard/internal/methods — method semantics and plans
 //	github.com/codermaybe/ethguard/rpctest     — scriptable in-process Ethereum nodes for tests
 package ethguard

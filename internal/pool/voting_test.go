@@ -1,0 +1,195 @@
+package pool
+
+import (
+	"context"
+	"errors"
+	"testing"
+	"time"
+
+	nativehttp "github.com/codermaybe/ethguard/internal/transport/http"
+	"github.com/codermaybe/ethguard/rpctest"
+)
+
+// --- CollectVoting: the fixed voting-basis collection path (decision 0062) ---
+
+func TestCollectVotingReturnsOneEmissionPerMember(t *testing.T) {
+	d := &newFakeDialer{dials: make(map[string]int)}
+	p := testPool(t, 0, WithDialer(d))
+	for _, name := range []string{"a", "b", "c"} {
+		if _, err := p.join(name, "https://"+name+".example"); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	ems, err := p.CollectVoting(context.Background(), "eth_blockNumber", nil, CollectOptions{})
+	if err != nil {
+		t.Fatalf("CollectVoting: %v", err)
+	}
+	if len(ems) != 3 {
+		t.Fatalf("expected one emission per member, got %d", len(ems))
+	}
+	for i, em := range ems {
+		if em.Response.Err() != nil || !em.Attempted {
+			t.Fatalf("emission %d not attempted cleanly: %+v", i, em)
+		}
+	}
+}
+
+// A member whose cooldown circuit is open is not requested and receives no
+// health penalty (decision 0062): gating is a pause, not an observation. The
+// shared failing method drives both members onto the circuit together, so
+// the final collection proves denominator preservation at the boundary: the
+// fan-out is impossible (both gated), no upstream was contacted, and no
+// health accounting changed.
+func TestCollectVotingKeepsCoolingMemberInBasis(t *testing.T) {
+	d := &newFakeDialer{dials: make(map[string]int)}
+	p := testPool(t, 0, WithDialer(d))
+	src, err := p.join("a", "https://a.example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := p.join("b", "https://b.example")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for i := 0; i < eligibleFailureThreshold; i++ {
+		ems, err := p.CollectVoting(context.Background(), "eth_protocolFailure", nil, CollectOptions{})
+		if err != nil {
+			t.Fatalf("failure round %d: %v", i+1, err)
+		}
+		if len(ems) != 2 || ems[0].Response.Err() == nil || ems[1].Response.Err() == nil {
+			t.Fatalf("failure round %d: expected both members to fail, got %+v", i+1, ems)
+		}
+	}
+	if src.eligible(time.Now()) || b.eligible(time.Now()) {
+		t.Fatal("expected both circuits to open")
+	}
+	healthBefore := src.Health().Failures
+
+	ems, err := p.CollectVoting(context.Background(), "eth_blockNumber", nil, CollectOptions{})
+	if !errors.Is(err, ErrNoEligibleSource) {
+		t.Fatalf("expected both members gated to be impossible fan-out, got %v", err)
+	}
+	if len(ems) != 2 || ems[0].Src != src || ems[1].Src != b {
+		t.Fatalf("expected captured members even when all gated, got %+v", ems)
+	}
+	for _, em := range ems {
+		if em.Attempted || !errors.Is(em.Response.Err(), ErrSourceGated) {
+			t.Fatalf("gated emission must carry no attempt: %+v", em)
+		}
+	}
+	if got := src.Health().Failures; got != healthBefore {
+		t.Fatalf("gating must not change health accounting: %d -> %d", healthBefore, got)
+	}
+}
+
+// Every member gated yields the impossible-fan-out sentinel: no upstream was
+// contacted, and the caller learns the basis still exists but cannot vote.
+// The pool has no members, so every request is impossible from the start —
+// and separately, a member that fails its identity check is gated without an
+// upstream round-trip.
+func TestCollectVotingAllGatedIsNoEligibleSource(t *testing.T) {
+	t.Run("empty pool", func(t *testing.T) {
+		p := testPool(t, 0, WithDialer(&newFakeDialer{dials: make(map[string]int)}))
+		if _, err := p.CollectVoting(context.Background(), "eth_blockNumber", nil, CollectOptions{}); !errors.Is(err, ErrNoEligibleSource) {
+			t.Fatalf("expected no-eligible-source for an empty basis, got %v", err)
+		}
+	})
+
+	t.Run("identity-gated member", func(t *testing.T) {
+		d := &newFakeDialer{dials: make(map[string]int)}
+		p := testPool(t, 5, WithDialer(d)) // pool expects chain 5, node answers 1
+		if _, err := p.join("a", "https://a.example"); err != nil {
+			t.Fatal(err)
+		}
+		// First contact verifies identity against the wrong answer and
+		// quarantines the member.
+		if _, err := p.CollectVoting(context.Background(), "eth_blockNumber", nil, CollectOptions{}); !errors.Is(err, ErrChainIDMismatch) {
+			t.Fatalf("expected chain mismatch, got %v", err)
+		}
+		if _, err := p.CollectVoting(context.Background(), "eth_blockNumber", nil, CollectOptions{}); !errors.Is(err, ErrNoEligibleSource) {
+			t.Fatalf("expected no-eligible-source when every member is gated, got %v", err)
+		}
+	})
+}
+
+func TestCollectVotingRejectsFixedMembershipOption(t *testing.T) {
+	p := testPool(t, 0, WithDialer(&newFakeDialer{dials: make(map[string]int)}))
+	if _, err := p.join("a", "https://a.example"); err != nil {
+		t.Fatal(err)
+	}
+	_, err := p.CollectVoting(context.Background(), "eth_blockNumber", nil, CollectOptions{SourceIDs: []string{"https://a.example"}})
+	if err == nil {
+		t.Fatal("expected SourceIDs rejection: the voting basis is pool-managed")
+	}
+}
+
+// CollectVoting keeps its callCtx-first contract — the deliberate mirror
+// image of collect's usable-first verdict: a member that answered before
+// the fan-out deadline does not upgrade the verdict past the timeout, and
+// the caller adjudicates usable emissions alongside the timeout fault.
+// The answer must still ride along on its own emission. Without this pin,
+// unifying the three fan-out verdicts would silently flip the priority.
+func TestCollectVotingTimeoutOutranksUsableAnswer(t *testing.T) {
+	fast := rpctest.NewNode(1)
+	defer fast.Close()
+	fast.Handle("eth_blockNumber", rpctest.After(30*time.Millisecond, rpctest.Value("0x11")))
+	laggard := rpctest.NewNode(1)
+	defer laggard.Close()
+	laggard.Hang("eth_blockNumber", time.Second)
+
+	p := testPool(t, 1, WithDialer(nativehttp.NewDialer()))
+	defer p.Close()
+	if _, err := p.join("fast", fast.URL()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.join("laggard", laggard.URL()); err != nil {
+		t.Fatal(err)
+	}
+	emissions, err := p.CollectVoting(context.Background(), "eth_blockNumber", nil, CollectOptions{Timeout: 150 * time.Millisecond})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("err = %v, want the fan-out deadline to outrank the usable answer", err)
+	}
+	answered := 0
+	for _, em := range emissions {
+		if em.Response.Answer.Result != nil {
+			answered++
+		}
+	}
+	if answered != 1 {
+		t.Fatalf("want the answered member's emission to ride along, got %d answers in %+v", answered, emissions)
+	}
+}
+
+// A member captured into an explicit voting basis that has since closed
+// keeps its slot and fails as ErrClosed with no attempt: closing a member
+// after the basis was captured must not shrink the denominator or skip the
+// slot, and the live members of the same basis still answer.
+func TestCollectVotingClosedMemberKeepsItsSlotAndFailsClosed(t *testing.T) {
+	d := &newFakeDialer{dials: make(map[string]int)}
+	p := testPool(t, 0, WithDialer(d))
+	doomed, err := p.join("doomed", "https://doomed.example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.join("live", "https://live.example"); err != nil {
+		t.Fatal(err)
+	}
+	doomed.close()
+
+	emissions, err := p.CollectVoting(context.Background(), "eth_blockNumber", nil,
+		CollectOptions{Sources: []*Source{doomed, p.Sources()[1]}})
+	if err != nil {
+		t.Fatalf("closed member must not fail the whole basis: %v", err)
+	}
+	if len(emissions) != 2 {
+		t.Fatalf("emissions = %d, want the closed member's slot preserved", len(emissions))
+	}
+	if emissions[0].Src != doomed || emissions[0].Attempted || !errors.Is(emissions[0].Response.Err(), ErrClosed) {
+		t.Fatalf("closed member emission = %+v, want ErrClosed with no attempt", emissions[0])
+	}
+	if emissions[1].Response.Err() != nil || !emissions[1].Attempted {
+		t.Fatalf("live member emission = %+v, want a clean attempt", emissions[1])
+	}
+}

@@ -1,0 +1,629 @@
+package pool
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"sync"
+	"time"
+
+	"github.com/codermaybe/ethguard/config"
+	upstream "github.com/codermaybe/ethguard/internal/transport"
+	"github.com/codermaybe/ethguard/rpc"
+)
+
+// Emission is the result of a single upstream fan-out request.
+// It carries the raw, unjudged response (or error) from one source; semantic
+// comparison is owned by the aggregator, not the pool.
+type Emission struct {
+	// Response retains communication, protocol and method facts without flattening.
+	Response rpc.Response
+	// Src is the source that answered (or failed).
+	Src *Source
+	// RTT is the round-trip time of the attempted call; zero when the call
+	// never started or failed before reaching the wire.
+	RTT time.Duration
+	// Attempted reports whether the call was actually issued to this source.
+	// False means the fan-out expired while this source waited for a slot;
+	// such an emission carries no observation and must not count as one.
+	Attempted bool
+	// Evidence is populated by an admission stage after collection. It stays
+	// attached to this source and is never combined across sources.
+	Evidence json.RawMessage
+
+	health *emissionHealth
+}
+
+// FinalizeHealth completes deferred health accounting once, even across copies
+// of an emission. Only an explicit malformed successful response can override
+// the original transport classification. Unattempted and already-accounted
+// emissions are no-ops. Callers using DeferHealth must call this on every exit.
+func (e Emission) FinalizeHealth(responseErr error) {
+	if e.health == nil {
+		return
+	}
+	e.health.once.Do(func() {
+		h := e.health
+		err, failed := h.err, h.recordFailure
+		if err == nil && errors.Is(responseErr, rpc.ErrMalformedResponse) {
+			err, failed = responseErr, true
+		}
+		accountAttempt(h.src, err, h.rtt, failed)
+	})
+}
+
+type emissionHealth struct {
+	once          sync.Once
+	src           *Source
+	err           error
+	rtt           time.Duration
+	recordFailure bool
+}
+
+// accountAttempt applies one health outcome to a source: a transport-healthy
+// exchange records success, a recordable failure cools the source, and
+// anything else (caller cancellation, closed pool, dial wait) records
+// nothing. It is the one classification both the immediate and the deferred
+// accounting paths apply.
+func accountAttempt(src *Source, err error, rtt time.Duration, failed bool) {
+	if isHealthyRPCResponse(err) {
+		src.recordSuccessfulCall(rtt)
+	} else if failed {
+		src.recordFailedCall(err)
+	}
+}
+
+// accountEmission freezes the transport classification at completion, before
+// later admission work or caller cancellation can change its meaning.
+func accountEmission(parent context.Context, e *Emission, deferred bool) {
+	if !e.Attempted {
+		return
+	}
+	if deferred {
+		e.health = &emissionHealth{src: e.Src, err: e.Response.Err(), rtt: e.RTT, recordFailure: shouldRecordFailure(parent, e.Response.Err())}
+		return
+	}
+	accountAttempt(e.Src, e.Response.Err(), e.RTT, shouldRecordFailure(parent, e.Response.Err()))
+}
+
+// TipFreshnessScope tells the pool whether one request's scheduling may
+// depend on the fleet's sampled latest tips. The caller that owns request
+// semantics supplies it; the pool never parses method parameters to infer it.
+//
+// The zero value applies the latest-tip gate. Production callers — the
+// aggregator's business rounds and the runtime's reference rounds — set an
+// explicit scope.
+type TipFreshnessScope uint8
+
+const (
+	// TipFreshnessLatest applies the sampled-latest-tip gate. Use it for a
+	// request that reads the latest moving tag.
+	TipFreshnessLatest TipFreshnessScope = iota
+	// TipFreshnessExempt skips the tip gate. Use it for explicit heights and
+	// hashes, pending reads, methods with no block reference, and
+	// safe/finalized reads: latest block-number samples do not describe
+	// their freshness.
+	TipFreshnessExempt
+)
+
+// gatesLatestTip reports whether the scope consults the sampled latest tip.
+func (s TipFreshnessScope) gatesLatestTip() bool {
+	return s == TipFreshnessLatest
+}
+
+// CollectOptions configures one fan-out. Zero value is a sensible default.
+type CollectOptions struct {
+	// Sources fixes the exact source objects captured by an outer invocation.
+	// Closed members remain visible as failed emissions instead of being
+	// replaced by a later membership configuration.
+	Sources []*Source
+	// SourceIDs fixes membership for a continuation of a previous collection.
+	// Nil selects current eligible sources. Explicit IDs retain pool order and
+	// bypass changing freshness/cooldown gates; identity and lifecycle checks
+	// still apply. Unknown or duplicate IDs are rejected.
+	SourceIDs []string
+	// Timeout bounds the whole fan-out. Zero uses a conservative default.
+	Timeout time.Duration
+	// MaxConcurrent caps simultaneous in-flight per-source calls.
+	// Zero uses the number of eligible sources (unbounded symmetric fan-out).
+	MaxConcurrent int
+	// TipFreshness declares whether this request may be paused by the
+	// sampled-latest-tip gate. The zero value applies that gate.
+	TipFreshness TipFreshnessScope
+	// DeferHealth leaves final accounting to the caller after response
+	// validation. Every returned attempted emission must be finalized with
+	// FinalizeHealth, including on cancellation and early returns. The default
+	// accounts at transport completion; Broadcast always keeps that behavior.
+	DeferHealth bool
+}
+
+// ErrSourceGated reports that a voting member's request was skipped by a
+// scheduling gate (cooldown circuit or freshness bound). The member still
+// occupies the invocation's voting basis (decision 0062): this error marks a
+// paused request, not a health observation — gated members receive no
+// failure accounting.
+//
+// The default fan-out bound lives in config (DefaultCollectTimeout): one
+// source for both the YAML and Go construction paths, so they cannot drift
+// (decision 0004). A zero CollectOptions.Timeout selects it.
+var ErrSourceGated = errors.New("pool: source gated; request paused, voting basis retained")
+
+// GateReason identifies the scheduling gate that paused a source.
+type GateReason string
+
+const (
+	// GateReasonCooldown is an open availability circuit.
+	GateReasonCooldown GateReason = "cooldown"
+	// GateReasonTipLag is a fresh sample trailing the fleet's tip reference.
+	GateReasonTipLag GateReason = "tip-lag"
+)
+
+// SourceGateError is the structured form of a scheduling pause. It unwraps to
+// ErrSourceGated, so existing errors.Is checks keep their meaning, while
+// diagnostics can inspect the reason and the freshness inputs that produced
+// it. A tip-lag diagnosis carries the source's sample, the floor, and the
+// sample's age; a cooldown diagnosis carries only the reason.
+type SourceGateError struct {
+	Reason    GateReason
+	TipHeight uint64
+	Floor     uint64
+	SampleAge time.Duration
+}
+
+func (e *SourceGateError) Error() string {
+	switch e.Reason {
+	case GateReasonTipLag:
+		return fmt.Sprintf("%s: source tip %d trails floor %d (sample age %s)",
+			ErrSourceGated, e.TipHeight, e.Floor, e.SampleAge)
+	default:
+		return fmt.Sprintf("%s: source cooldown circuit is open", ErrSourceGated)
+	}
+}
+
+func (e *SourceGateError) Unwrap() error { return ErrSourceGated }
+
+// boundedFanout applies the collection-default timeout when the caller left
+// the fan-out timeout unset. Every fan-out path shares this preamble.
+func boundedFanout(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+	if timeout <= 0 {
+		timeout = config.DefaultCollectTimeout()
+	}
+	return context.WithTimeout(ctx, timeout)
+}
+
+// gateDeadline distinguishes a scheduling pause from a caller deadline: an
+// acquire timeout under a still-live caller is the source's local pacing
+// gate, not the request's own deadline.
+func gateDeadline(parent context.Context, err error) error {
+	if err != nil && parent.Err() == nil && errors.Is(err, context.DeadlineExceeded) {
+		return fmt.Errorf("%w: %w", ErrSourceGated, err)
+	}
+	return err
+}
+
+// symmetricSemaphore caps a symmetric fan-out: zero or an over-large cap
+// means unbounded across the captured members.
+func symmetricSemaphore(cap int, members int) chan struct{} {
+	if cap <= 0 || cap > members {
+		cap = members
+	}
+	return make(chan struct{}, cap)
+}
+
+// Collect fans a single request out to all eligible sources symmetrically and
+// returns each source's raw response, unjudged.
+//
+// Concurrency model: eligible sources are scheduled independently under one
+// shared context. A single source's failure does not affect the others. Sources
+// whose calls actually start report health automatically; expiration while
+// waiting for a local concurrency slot does not count against a source.
+//
+// Membership selection: an explicit opts.Sources list is requested
+// best-effort, without scheduling gates — no cooldown, freshness, or
+// pre-dispatch identity filtering (a known-invalid identity still fails fast
+// inside its own call). Gate-paused-but-in-basis semantics belong to
+// CollectVoting; Collect serves selection reads where every answer is useful
+// evidence and no voting denominator exists.
+//
+// The returned slice has one Emission per eligible source, in pool order.
+func (p *Pool) Collect(ctx context.Context, method string, params []any, opts CollectOptions) ([]Emission, error) {
+	return p.collect(ctx, method, params, opts, collectPlan{applyFreshness: true, tipFreshness: opts.TipFreshness})
+}
+
+// CollectVoting fans a single request out to the full voting membership and
+// returns one emission per member, in pool order. Membership is fixed at pool
+// construction, so every member of the pool is a member of this basis.
+//
+// Unlike Collect, scheduling gates pause requests rather than removing
+// members (decision 0062): a member whose cooldown circuit is open, whose tip
+// trails the freshness bound, or whose identity is known-invalid is not
+// requested, but keeps its place in the returned basis — corroboration is
+// adjudicated against every voting member, so failures and skips can never
+// shrink the denominator. Gated members carry ErrSourceGated (or
+// ErrChainIDMismatch) with Attempted=false and receive no health penalty.
+//
+// A member that fails its lazily-verified chain identity during this
+// collection fails as one member; the invocation continues without it.
+func (p *Pool) CollectVoting(ctx context.Context, method string, params []any, opts CollectOptions) ([]Emission, error) {
+	callCtx, cancel := boundedFanout(ctx, opts.Timeout)
+	defer cancel()
+	if p.isClosed() {
+		return nil, ErrClosed
+	}
+	var members []*Source
+	if opts.Sources != nil {
+		members = append([]*Source(nil), opts.Sources...)
+	} else if opts.SourceIDs != nil {
+		return nil, fmt.Errorf("pool: CollectVoting fixes its own membership; SourceIDs does not apply")
+	} else {
+		var err error
+		members, err = p.snapshotSources(true)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if len(members) == 0 {
+		return nil, ErrNoEligibleSource
+	}
+
+	// Gates are decided before dispatch so paused members never consume a
+	// concurrency slot. Each pause is recorded directly into the slot that
+	// carries it, so the dispatch loop below skips exactly the slots that
+	// already hold their member's outcome; there is no separate gate map to
+	// allocate and consult once per member. The freshness reference is
+	// computed over the whole basis, as in the eligible path, and only when
+	// the request's declared scope depends on the sampled latest tip.
+	now := time.Now()
+	reference := tipReference{}
+	if opts.TipFreshness.gatesLatestTip() {
+		reference = p.tipReference(members, now)
+	}
+	var (
+		emissions   = make([]Emission, len(members))
+		attemptable int
+	)
+	for i, src := range members {
+		if gate := votingGate(src, reference, now); gate != nil {
+			emissions[i] = Emission{Src: src, Response: rpc.Response{Exchange: rpc.Exchange{Cause: gate}}}
+			continue
+		}
+		attemptable++
+	}
+	if attemptable == 0 {
+		// Preserve the captured basis even when no request can start.
+		return emissions, ErrNoEligibleSource
+	}
+
+	sem := symmetricSemaphore(opts.MaxConcurrent, len(members))
+
+	var wg sync.WaitGroup
+	for i, src := range members {
+		if emissions[i].Src != nil {
+			continue // this slot already records its member's pause
+		}
+		dispatchOne(callCtx, ctx, sem, i, src, method, params, emissions, &wg, opts.DeferHealth)
+	}
+	wg.Wait()
+	// Usable answers ride alongside a fan-out timeout: the caller adjudicates
+	// over the emissions and records the timeout as a fault rather than
+	// discarding answered sources. The deadline still outranks them — this
+	// callCtx-first order is the deliberate mirror of collect's.
+	return emissions, fanoutVerdict(emissions, callCtx, false)
+}
+
+// votingGate reports why a member's request is currently paused, or nil when
+// it should be dispatched. Closed members are not gated: attempting them
+// fails fast with ErrClosed and no penalty, keeping a closed pool visible in
+// each captured basis instead of silently shrinking it.
+func votingGate(src *Source, reference tipReference, now time.Time) error {
+	if src.isIdentityInvalid() {
+		return ErrChainIDMismatch
+	}
+	if !src.requestable(now) {
+		return &SourceGateError{Reason: GateReasonCooldown}
+	}
+	if reference.floor > 0 {
+		tip, observedAt, ok := src.freshTip(now, reference.maxAge)
+		if ok && tip < reference.floor {
+			return &SourceGateError{
+				Reason:    GateReasonTipLag,
+				TipHeight: tip,
+				Floor:     reference.floor,
+				SampleAge: now.Sub(observedAt),
+			}
+		}
+	}
+	return nil
+}
+
+// dispatchOne attempts one member's call under the shared semaphore and
+// records its emission. Attempted calls report health here unless the read
+// coordinator explicitly defers accounting through response validation. A
+// caller that never acquires a local slot records nothing. Shared by the
+// read paths and Broadcast: a broadcast failure cools the source for reads
+// too, and a read failure cools it for writes.
+func dispatchOne(callCtx, parent context.Context, sem chan struct{}, i int, src *Source, method string, params []any, emissions []Emission, wg *sync.WaitGroup, deferHealth bool) {
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+
+		var response rpc.Response
+		var err error
+		var rtt time.Duration
+		attempted := false
+		select {
+		case sem <- struct{}{}:
+			if err = callCtx.Err(); err == nil {
+				var release func()
+				release, err = src.acquireRequest(callCtx)
+				err = gateDeadline(parent, err)
+				if err == nil {
+					attempted = true
+					// Released by defer: a panic below must not leak the
+					// scheduling slot and slowly wedge this source.
+					defer release()
+					response, rtt = collectOne(callCtx, src, method, params)
+				}
+			}
+			<-sem
+		case <-callCtx.Done():
+			err = callCtx.Err()
+		}
+
+		if !attempted {
+			response.Exchange.Cause = err
+		}
+		emissions[i] = Emission{Src: src, Response: response, RTT: rtt, Attempted: attempted}
+		accountEmission(parent, &emissions[i], deferHealth)
+	}()
+}
+
+// collectPlan selects which eligibility rules one collection applies. User
+// traffic uses the zero-plus-freshness plan; tip probes relax gates so they
+// can observe and recover the fleet.
+type collectPlan struct {
+	// applyFreshness excludes sources trailing the fleet's tip reference.
+	applyFreshness bool
+	// tipFreshness is the request-level scope supplied with the collection.
+	// It is consulted only when applyFreshness is true.
+	tipFreshness TipFreshnessScope
+	// warmOnly skips sources without an established connection instead of
+	// dialing them, keeping first contact caller-driven. It also bypasses
+	// per-source cooldown circuits: a probe verifies recovery proactively.
+	warmOnly bool
+}
+
+// collect is Collect with a switch for the eligibility rules; tip probes use
+// a relaxed plan so a stale or cooling fleet can still be observed.
+func (p *Pool) collect(ctx context.Context, method string, params []any, opts CollectOptions, plan collectPlan) ([]Emission, error) {
+	callCtx, cancel := boundedFanout(ctx, opts.Timeout)
+	defer cancel()
+	if p.isClosed() {
+		return nil, ErrClosed
+	}
+
+	var sources []*Source
+	var err error
+	if opts.Sources != nil {
+		sources = append([]*Source(nil), opts.Sources...)
+	} else if opts.SourceIDs != nil {
+		sources, err = p.sourcesByIDs(opts.SourceIDs)
+	} else {
+		sources, err = p.sourcesForCollect(plan)
+	}
+	if err != nil {
+		return nil, err
+	}
+	if len(sources) == 0 {
+		return nil, ErrNoEligibleSource
+	}
+	sem := symmetricSemaphore(opts.MaxConcurrent, len(sources))
+
+	var (
+		emissions = make([]Emission, len(sources))
+		wg        sync.WaitGroup
+	)
+
+	for i, src := range sources {
+		dispatchOne(callCtx, ctx, sem, i, src, method, params, emissions, &wg, opts.DeferHealth)
+	}
+	wg.Wait()
+
+	// Priority as Broadcast's: a usable answer outranks the fan-out deadline,
+	// which outranks the identity sentinel, which outranks fleet silence.
+	// CollectVoting keeps its own callCtx-first contract: its caller
+	// adjudicates usable emissions alongside the timeout fault.
+	return emissions, fanoutVerdict(emissions, callCtx, true)
+}
+
+// Forward sends a request to one eligible source at a time, in deterministic
+// pool order. It fails over only after a transport-level failure. A JSON-RPC
+// response error is an answer from that source and stops the sequence.
+//
+// Unlike Collect, this method deliberately avoids symmetric fan-out for
+// unknown, heavy, or non-idempotent methods. The returned emissions contain
+// only sources that were actually attempted.
+func (p *Pool) Forward(ctx context.Context, method string, params []any, opts CollectOptions) ([]Emission, error) {
+	callCtx, cancel := boundedFanout(ctx, opts.Timeout)
+	defer cancel()
+	if p.isClosed() {
+		return nil, ErrClosed
+	}
+
+	var sources []*Source
+	var err error
+	if opts.Sources != nil {
+		sources = append([]*Source(nil), opts.Sources...)
+	} else if opts.SourceIDs != nil {
+		sources, err = p.sourcesByIDs(opts.SourceIDs)
+	} else {
+		sources, err = p.sourcesForCollect(collectPlan{applyFreshness: true, tipFreshness: opts.TipFreshness})
+	}
+	if err != nil {
+		return nil, err
+	}
+	if len(sources) == 0 {
+		return nil, ErrNoEligibleSource
+	}
+
+	emissions := make([]Emission, 0, len(sources))
+	for _, src := range sources {
+		if err := callCtx.Err(); err != nil {
+			return emissions, err
+		}
+		release, waitErr := src.acquireRequest(callCtx)
+		if waitErr != nil {
+			waitErr = gateDeadline(ctx, waitErr)
+			emissions = append(emissions, Emission{Src: src, Response: rpc.Response{Exchange: rpc.Exchange{Cause: waitErr}}})
+			// The caller's cancellation is not fleet silence. In particular,
+			// the final member may never have acquired a scheduling slot;
+			// preserve that cause instead of falling through to AllSourcesDown.
+			if err := ctx.Err(); err != nil {
+				return emissions, err
+			}
+			// A local scheduling gate is not an upstream transport failure;
+			// Forward must not turn it into an implicit source failover.
+			if errors.Is(waitErr, ErrSourceGated) {
+				return emissions, waitErr
+			}
+			continue
+		}
+		response, rtt := collectWithSlot(callCtx, src, method, params, release)
+		emission := Emission{Src: src, Response: response, RTT: rtt, Attempted: true}
+		callErr := emission.Response.Err()
+
+		accountEmission(ctx, &emission, opts.DeferHealth)
+		emissions = append(emissions, emission)
+
+		if callErr == nil || isJSONRPCResponseError(callErr) {
+			return emissions, nil
+		}
+		if errors.Is(callErr, ErrChainIDMismatch) {
+			return emissions, callErr
+		}
+	}
+	return emissions, ErrAllSourcesDown
+}
+
+// CallSource performs one dependent request against the captured source. It
+// is used by admission policies for same-source content (such as uncle
+// headers) and deliberately does not alter the voting membership.
+func (p *Pool) CallSource(ctx context.Context, src *Source, method string, params []any) (json.RawMessage, error) {
+	if src == nil {
+		return nil, ErrNoEligibleSource
+	}
+	// Admission dependencies are part of validating one primary response;
+	// malformed or unavailable optional content must not alter source health,
+	// but they still consume the source's shared scheduling budget.
+	release, err := src.acquireRequest(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	response, _ := collectOne(ctx, src, method, params)
+	if err := response.Err(); err != nil {
+		return nil, err
+	}
+	return response.Answer.Result, nil
+}
+
+func shouldRecordFailure(parent context.Context, err error) bool {
+	return err != nil && parent.Err() == nil && !errors.Is(err, ErrClosed) && !errors.Is(err, errWaitingForDial)
+}
+
+// fanoutVerdict reduces one completed fan-out's emissions to the call's
+// verdict. The four tiers are shared by Collect, CollectVoting and
+// Broadcast, so the verdict cannot depend on member order. usableFirst
+// orders the top two tiers: Collect and Broadcast accept a usable answer
+// that landed before the fan-out deadline, while CollectVoting keeps its
+// callCtx-first contract — its caller adjudicates usable emissions
+// alongside the timeout fault. The identity sentinel outranks fleet
+// silence in both orders.
+func fanoutVerdict(emissions []Emission, callCtx context.Context, usableFirst bool) error {
+	hasUsable := func() bool {
+		for _, emission := range emissions {
+			if emission.Response.CandidateErr(true) == nil {
+				return true
+			}
+		}
+		return false
+	}
+	if usableFirst && hasUsable() {
+		return nil
+	}
+	if err := callCtx.Err(); err != nil {
+		return err
+	}
+	if !usableFirst && hasUsable() {
+		return nil
+	}
+	for _, emission := range emissions {
+		if errors.Is(emission.Response.Err(), ErrChainIDMismatch) {
+			return emission.Response.Err()
+		}
+	}
+	return ErrAllSourcesDown
+}
+
+func isJSONRPCResponseError(err error) bool {
+	var rpcErr rpc.ProtocolError
+	return errors.As(err, &rpcErr)
+}
+
+func isHealthyRPCResponse(err error) bool {
+	if err == nil {
+		return true
+	}
+	if isRateLimitError(err) {
+		return false
+	}
+	var rpcErr rpc.ProtocolError
+	if !errors.As(err, &rpcErr) {
+		return false
+	}
+	// These codes mean the peer could not process a valid JSON-RPC exchange.
+	return !isProtocolServerError(err) && rpcErr.ErrorCode() != -32700 && rpcErr.ErrorCode() != -32600
+}
+
+// collectWithSlot runs collectOne with the source's pacing slot held,
+// releasing it even when collectOne panics — parity with dispatchOne's
+// defer release, so a panicking adapter cannot permanently wedge the
+// source's scheduling budget. The caller records health after the call so
+// recording still happens with the slot already freed.
+func collectWithSlot(ctx context.Context, src *Source, method string, params []any, release func()) (rpc.Response, time.Duration) {
+	defer release()
+	return collectOne(ctx, src, method, params)
+}
+
+// collectOne retains the transport response and measures only the call, keeping
+// lazy connection setup and identity probing outside the measured window.
+func collectOne(ctx context.Context, src *Source, method string, params []any) (rpc.Response, time.Duration) {
+	client, err := src.clientForCall(ctx)
+	if err != nil {
+		return rpc.Response{Exchange: rpc.Exchange{Cause: err}}, 0
+	}
+	if err := src.verifyChainID(ctx, client); err != nil {
+		if shouldDiscardClient(err) {
+			src.discardClient(client)
+		}
+		return rpc.Response{Exchange: rpc.Exchange{Cause: err}}, 0
+	}
+	start := time.Now()
+	response := client.Call(ctx, method, params...)
+	rtt := time.Since(start)
+	if src.isClosed() {
+		response.Exchange.Cause = ErrClosed
+	}
+	if shouldDiscardClient(response.Err()) {
+		src.discardClient(client)
+	}
+	return response, rtt
+}
+
+// shouldDiscardClient reports whether the connection is finished and must be
+// dropped, classified on the neutral lifecycle sentinel every adapter maps
+// its own closed-connection error onto.
+func shouldDiscardClient(err error) bool {
+	return errors.Is(err, upstream.ErrConnectionClosed)
+}

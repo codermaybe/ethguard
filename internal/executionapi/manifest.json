@@ -1,0 +1,610 @@
+{
+  "formatVersion": 1,
+  "resultMethods": [
+    "eth_blobBaseFee",
+    "eth_blockNumber",
+    "eth_call",
+    "eth_chainId",
+    "eth_createAccessList",
+    "eth_estimateGas",
+    "eth_feeHistory",
+    "eth_gasPrice",
+    "eth_getBalance",
+    "eth_getBlockByHash",
+    "eth_getBlockByNumber",
+    "eth_getBlockReceipts",
+    "eth_getBlockTransactionCountByHash",
+    "eth_getBlockTransactionCountByNumber",
+    "eth_getCode",
+    "eth_getHeaderByHash",
+    "eth_getHeaderByNumber",
+    "eth_getLogs",
+    "eth_getProof",
+    "eth_getStorageAt",
+    "eth_getTransactionByBlockHashAndIndex",
+    "eth_getTransactionByHash",
+    "eth_getTransactionCount",
+    "eth_getTransactionReceipt",
+    "eth_maxPriorityFeePerGas",
+    "eth_sendRawTransaction",
+    "eth_simulateV1",
+    "eth_syncing",
+    "net_listening",
+    "net_peerCount",
+    "net_version"
+  ],
+  "valueValidationResults": [
+    "eth_createAccessList"
+  ],
+  "requestInventoryPrefixes": [
+    "eth_",
+    "net_"
+  ],
+  "defaultExclusionReason": "Not selected for the reviewed public model surface; inventory presence does not imply runtime support.",
+  "requestRoots": [
+    {
+      "source": {
+        "method": "eth_call",
+        "part": "request",
+        "parameter": 0
+      }
+    },
+    {
+      "source": {
+        "method": "eth_getBlockReceipts",
+        "part": "request",
+        "parameter": 0
+      }
+    },
+    {
+      "source": {
+        "method": "eth_getLogs",
+        "part": "request",
+        "parameter": 0
+      }
+    },
+    {
+      "source": {
+        "method": "eth_subscribe",
+        "part": "request",
+        "parameter": 1,
+        "schemaPointer": "/oneOf/2"
+      },
+      "selectedCompactSchemaSHA256": "d2e56b0d79a7b0c5d2a7bf9c501354414a12c33ceb37c2b76bb556826a6a9a3d"
+    },
+    {
+      "source": {
+        "method": "eth_simulateV1",
+        "part": "request",
+        "parameter": 0
+      }
+    },
+    {
+      "source": {
+        "method": "eth_simulateV1",
+        "part": "request",
+        "parameter": 1
+      }
+    }
+  ],
+  "names": [
+    {
+      "source": {
+        "method": "eth_call",
+        "part": "request",
+        "parameter": 0
+      },
+      "name": "CallMsg"
+    },
+    {
+      "source": {
+        "method": "eth_call",
+        "part": "request",
+        "parameter": 0,
+        "schemaPointer": "/properties/accessList/items"
+      },
+      "name": "SimulateAccessListItem"
+    },
+    {
+      "source": {
+        "method": "eth_call",
+        "part": "request",
+        "parameter": 0,
+        "schemaPointer": "/properties/authorizationList/items"
+      },
+      "name": "CallAuthorization"
+    },
+    {
+      "source": {
+        "method": "eth_getBlockByHash",
+        "part": "result",
+        "schemaPointer": "/oneOf/1/properties/transactions"
+      },
+      "name": "BlockTransactions"
+    },
+    {
+      "source": {
+        "method": "eth_getBlockByHash",
+        "part": "result",
+        "schemaPointer": "/oneOf/1/properties/transactions/anyOf/1/items"
+      },
+      "name": "BlockTransaction"
+    },
+    {
+      "source": {
+        "method": "eth_getBlockByHash",
+        "part": "result",
+        "schemaPointer": "/oneOf/1/properties/transactions/anyOf/1/items/oneOf/0"
+      },
+      "name": "BlockSetCodeTransaction"
+    },
+    {
+      "source": {
+        "method": "eth_getBlockByHash",
+        "part": "result",
+        "schemaPointer": "/oneOf/1/properties/transactions/anyOf/1/items/oneOf/0/properties/authorizationList/items"
+      },
+      "name": "AuthorizationTuple"
+    },
+    {
+      "source": {
+        "method": "eth_getBlockByHash",
+        "part": "result",
+        "schemaPointer": "/oneOf/1/properties/transactions/anyOf/1/items/oneOf/1"
+      },
+      "name": "BlockBlobTransaction"
+    },
+    {
+      "source": {
+        "method": "eth_getBlockByHash",
+        "part": "result",
+        "schemaPointer": "/oneOf/1/properties/transactions/anyOf/1/items/oneOf/2"
+      },
+      "name": "BlockEIP1559Transaction"
+    },
+    {
+      "source": {
+        "method": "eth_getBlockByHash",
+        "part": "result",
+        "schemaPointer": "/oneOf/1/properties/transactions/anyOf/1/items/oneOf/3"
+      },
+      "name": "BlockAccessListTransaction"
+    },
+    {
+      "source": {
+        "method": "eth_getBlockByHash",
+        "part": "result",
+        "schemaPointer": "/oneOf/1/properties/transactions/anyOf/1/items/oneOf/4"
+      },
+      "name": "BlockLegacyTransaction"
+    },
+    {
+      "source": {
+        "method": "eth_getBlockByNumber",
+        "part": "result",
+        "schemaPointer": "/oneOf/1/properties/transactions/anyOf/1/items"
+      },
+      "name": "BlockTransaction"
+    },
+    {
+      "source": {
+        "method": "eth_getBlockByNumber",
+        "part": "result",
+        "schemaPointer": "/oneOf/1/properties/transactions/anyOf/1/items/oneOf/0"
+      },
+      "name": "BlockSetCodeTransaction"
+    },
+    {
+      "source": {
+        "method": "eth_getBlockByNumber",
+        "part": "result",
+        "schemaPointer": "/oneOf/1/properties/transactions/anyOf/1/items/oneOf/1"
+      },
+      "name": "BlockBlobTransaction"
+    },
+    {
+      "source": {
+        "method": "eth_getBlockByNumber",
+        "part": "result",
+        "schemaPointer": "/oneOf/1/properties/transactions/anyOf/1/items/oneOf/2"
+      },
+      "name": "BlockEIP1559Transaction"
+    },
+    {
+      "source": {
+        "method": "eth_getBlockByNumber",
+        "part": "result",
+        "schemaPointer": "/oneOf/1/properties/transactions/anyOf/1/items/oneOf/3"
+      },
+      "name": "BlockAccessListTransaction"
+    },
+    {
+      "source": {
+        "method": "eth_getBlockByNumber",
+        "part": "result",
+        "schemaPointer": "/oneOf/1/properties/transactions/anyOf/1/items/oneOf/4"
+      },
+      "name": "BlockLegacyTransaction"
+    },
+    {
+      "source": {
+        "method": "eth_getBlockReceipts",
+        "part": "request",
+        "parameter": 0
+      },
+      "name": "BlockReference"
+    },
+    {
+      "source": {
+        "method": "eth_getBlockReceipts",
+        "part": "request",
+        "parameter": 0,
+        "schemaPointer": "/anyOf/3"
+      },
+      "name": "BlockNumberReference"
+    },
+    {
+      "source": {
+        "method": "eth_getBlockReceipts",
+        "part": "request",
+        "parameter": 0,
+        "schemaPointer": "/anyOf/4"
+      },
+      "name": "BlockHashReference"
+    },
+    {
+      "source": {
+        "method": "eth_getHeaderByHash",
+        "part": "result",
+        "schemaPointer": "/oneOf/1"
+      },
+      "name": "Header"
+    },
+    {
+      "source": {
+        "method": "eth_getHeaderByNumber",
+        "part": "result",
+        "schemaPointer": "/oneOf/1"
+      },
+      "name": "Header"
+    },
+    {
+      "source": {
+        "method": "eth_getLogs",
+        "part": "request",
+        "parameter": 0
+      },
+      "name": "FilterQuery"
+    },
+    {
+      "source": {
+        "method": "eth_getLogs",
+        "part": "request",
+        "parameter": 0,
+        "schemaPointer": "/oneOf/0"
+      },
+      "name": "FilterQueryRange"
+    },
+    {
+      "source": {
+        "method": "eth_getLogs",
+        "part": "request",
+        "parameter": 0,
+        "schemaPointer": "/oneOf/0/properties/address"
+      },
+      "name": "FilterAddress"
+    },
+    {
+      "source": {
+        "method": "eth_getLogs",
+        "part": "request",
+        "parameter": 0,
+        "schemaPointer": "/oneOf/0/properties/fromBlock"
+      },
+      "name": "FilterBlock"
+    },
+    {
+      "source": {
+        "method": "eth_getLogs",
+        "part": "request",
+        "parameter": 0,
+        "schemaPointer": "/oneOf/0/properties/toBlock"
+      },
+      "name": "FilterBlock"
+    },
+    {
+      "source": {
+        "method": "eth_getLogs",
+        "part": "request",
+        "parameter": 0,
+        "schemaPointer": "/oneOf/0/properties/topics/oneOf/1/items"
+      },
+      "name": "FilterTopic"
+    },
+    {
+      "source": {
+        "method": "eth_getLogs",
+        "part": "request",
+        "parameter": 0,
+        "schemaPointer": "/oneOf/1"
+      },
+      "name": "FilterQueryHash"
+    },
+    {
+      "source": {
+        "method": "eth_getTransactionByHash",
+        "part": "result",
+        "schemaPointer": "/oneOf/1"
+      },
+      "name": "Transaction"
+    },
+    {
+      "source": {
+        "method": "eth_getTransactionByHash",
+        "part": "result",
+        "schemaPointer": "/oneOf/1/oneOf/0"
+      },
+      "name": "SetCodeTransaction"
+    },
+    {
+      "source": {
+        "method": "eth_getTransactionByHash",
+        "part": "result",
+        "schemaPointer": "/oneOf/1/oneOf/1"
+      },
+      "name": "BlobTransaction"
+    },
+    {
+      "source": {
+        "method": "eth_getTransactionByHash",
+        "part": "result",
+        "schemaPointer": "/oneOf/1/oneOf/2"
+      },
+      "name": "EIP1559Transaction"
+    },
+    {
+      "source": {
+        "method": "eth_getTransactionByHash",
+        "part": "result",
+        "schemaPointer": "/oneOf/1/oneOf/3"
+      },
+      "name": "AccessListTransaction"
+    },
+    {
+      "source": {
+        "method": "eth_getTransactionByHash",
+        "part": "result",
+        "schemaPointer": "/oneOf/1/oneOf/4"
+      },
+      "name": "LegacyTransaction"
+    },
+    {
+      "source": {
+        "method": "eth_simulateV1",
+        "part": "request",
+        "parameter": 0
+      },
+      "name": "SimulateV1Request"
+    },
+    {
+      "source": {
+        "method": "eth_simulateV1",
+        "part": "request",
+        "parameter": 0,
+        "schemaPointer": "/properties/blockStateCalls/items"
+      },
+      "name": "BlockStateCall"
+    },
+    {
+      "source": {
+        "method": "eth_simulateV1",
+        "part": "request",
+        "parameter": 0,
+        "schemaPointer": "/properties/blockStateCalls/items/properties/blockOverrides"
+      },
+      "name": "BlockOverrides"
+    },
+    {
+      "source": {
+        "method": "eth_simulateV1",
+        "part": "request",
+        "parameter": 0,
+        "schemaPointer": "/properties/blockStateCalls/items/properties/blockOverrides/properties/withdrawals/items"
+      },
+      "name": "SimulateWithdrawal"
+    },
+    {
+      "source": {
+        "method": "eth_simulateV1",
+        "part": "request",
+        "parameter": 0,
+        "schemaPointer": "/properties/blockStateCalls/items/properties/calls/items"
+      },
+      "name": "SimulateCall"
+    },
+    {
+      "source": {
+        "method": "eth_simulateV1",
+        "part": "request",
+        "parameter": 0,
+        "schemaPointer": "/properties/blockStateCalls/items/properties/calls/items/properties/accessList/items"
+      },
+      "name": "SimulateAccessListItem"
+    },
+    {
+      "source": {
+        "method": "eth_simulateV1",
+        "part": "request",
+        "parameter": 0,
+        "schemaPointer": "/properties/blockStateCalls/items/properties/stateOverrides"
+      },
+      "name": "StateOverrides"
+    },
+    {
+      "source": {
+        "method": "eth_simulateV1",
+        "part": "request",
+        "parameter": 0,
+        "schemaPointer": "/properties/blockStateCalls/items/properties/stateOverrides/patternProperties/^0x[a-fA-F0-9]{40}$"
+      },
+      "name": "AccountOverride"
+    },
+    {
+      "source": {
+        "method": "eth_simulateV1",
+        "part": "request",
+        "parameter": 0,
+        "schemaPointer": "/properties/blockStateCalls/items/properties/stateOverrides/patternProperties/^0x[a-fA-F0-9]{40}$/properties/state"
+      },
+      "name": "AccountStorage"
+    },
+    {
+      "source": {
+        "method": "eth_simulateV1",
+        "part": "request",
+        "parameter": 1
+      },
+      "name": "BlockReference"
+    },
+    {
+      "source": {
+        "method": "eth_simulateV1",
+        "part": "request",
+        "parameter": 1,
+        "schemaPointer": "/anyOf/3"
+      },
+      "name": "BlockNumberReference"
+    },
+    {
+      "source": {
+        "method": "eth_simulateV1",
+        "part": "request",
+        "parameter": 1,
+        "schemaPointer": "/anyOf/4"
+      },
+      "name": "BlockHashReference"
+    },
+    {
+      "source": {
+        "method": "eth_simulateV1",
+        "part": "result",
+        "schemaPointer": "/items/properties/calls/items"
+      },
+      "name": "SimulateCallResult"
+    },
+    {
+      "source": {
+        "method": "eth_simulateV1",
+        "part": "result",
+        "schemaPointer": "/items/properties/calls/items/oneOf/0/properties/error"
+      },
+      "name": "SimulateCallError"
+    },
+    {
+      "source": {
+        "method": "eth_simulateV1",
+        "part": "result",
+        "schemaPointer": "/items/properties/calls/items/oneOf/0/properties/error/oneOf/0"
+      },
+      "name": "SimulateErrorRevert"
+    },
+    {
+      "source": {
+        "method": "eth_simulateV1",
+        "part": "result",
+        "schemaPointer": "/items/properties/calls/items/oneOf/0/properties/error/oneOf/1"
+      },
+      "name": "SimulateErrorVM"
+    },
+    {
+      "source": {
+        "method": "eth_subscribe",
+        "part": "request",
+        "parameter": 1,
+        "schemaPointer": "/oneOf/2"
+      },
+      "name": "TransactionReceiptsQuery"
+    }
+  ],
+  "titleNames": {
+    "log": "Log",
+    "Access list entry": "AccessListItem",
+    "Validator withdrawal": "Withdrawal",
+    "Syncing progress": "SyncProgress",
+    "Result of call failure": "SimulateCallFailure",
+    "Result of call success": "SimulateCallSuccess",
+    "Result of eth_simulate block-level, with array of calls": "SimulateBlock",
+    "Receipt information": "Receipt",
+    "Block object": "Block",
+    "feeHistoryResults": "FeeHistoryResult",
+    "Account proof": "AccountProofResult"
+  },
+  "aliases": {
+    "SimulateBlockReference": "BlockReference"
+  },
+  "fieldOrder": {
+    "Log": [
+      "address",
+      "topics",
+      "data",
+      "blockNumber",
+      "transactionHash",
+      "transactionIndex",
+      "blockHash",
+      "logIndex",
+      "removed",
+      "blockTimestamp"
+    ],
+    "Receipt": [
+      "transactionHash",
+      "transactionIndex",
+      "blockHash",
+      "blockNumber",
+      "from",
+      "cumulativeGasUsed",
+      "gasUsed",
+      "effectiveGasPrice",
+      "logsBloom",
+      "logs",
+      "status",
+      "root",
+      "type",
+      "contractAddress",
+      "to",
+      "blobGasUsed",
+      "blobGasPrice"
+    ],
+    "AccessListResult": [
+      "accessList",
+      "error",
+      "gasUsed"
+    ],
+    "AccessListItem": [
+      "address",
+      "storageKeys"
+    ],
+    "FeeHistoryResult": [
+      "oldestBlock",
+      "baseFeePerGas",
+      "gasUsedRatio",
+      "reward",
+      "baseFeePerBlobGas",
+      "blobGasUsedRatio"
+    ]
+  },
+  "scalarPolicies": {
+    "Quantity": "literal-v1",
+    "Quantity64": "literal-v1",
+    "Quantity256": "literal-v1",
+    "Data": "literal-v1",
+    "Hash": "literal-v1",
+    "Address": "address-v2",
+    "Bloom": "literal-v1",
+    "BlockNonce": "literal-v1",
+    "StorageKey": "literal-v1",
+    "HexByte": "hex-byte-v2",
+    "DecimalString": "literal-v1",
+    "Number": "number-v1",
+    "Text": "literal-v1"
+  }
+}

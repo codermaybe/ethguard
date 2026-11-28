@@ -24,7 +24,7 @@ func TestReadIncludesUnifiedSchemasWithoutMutatingSources(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if bundle.Version != spec.Version() || len(bundle.Results) != 26 || !reflect.DeepEqual(bundle.Results, source.Results) {
+	if bundle.Version != spec.Version() || len(bundle.Results) != 31 || !reflect.DeepEqual(bundle.Results, source.Results) {
 		t.Fatal("loading changed the unified official result definitions")
 	}
 	delete(bundle.Results, "eth_chainId")
@@ -78,7 +78,7 @@ func TestRequestInventorySharesTheOriginalCallAndSimulateSchemas(t *testing.T) {
 	if err := json.Unmarshal(spec.RequestsJSON(), &source); err != nil {
 		t.Fatal(err)
 	}
-	if len(bundle.Requests) != 49 || !reflect.DeepEqual(source.Requests, bundle.Requests) {
+	if len(bundle.Requests) != 51 || !reflect.DeepEqual(source.Requests, bundle.Requests) {
 		t.Fatal("loading changed the unified official parameter inventory")
 	}
 	delete(bundle.Requests, "eth_call")
@@ -126,7 +126,7 @@ func TestReferenceBundlesMatchPinnedSourceManifest(t *testing.T) {
 	if source.Repository != "https://github.com/ethereum/execution-apis" || source.Version != spec.Version() || source.Commit != "981aa66d79364be8322a9c358aaf0a571cca0873" || source.DereferencedOpenRPCSHA256 != "80efa2c6ab609d9ec48fa6d720650d1c3903065c887e03c600970ca97c2f09a5" {
 		t.Fatalf("unexpected source identity: %+v", source)
 	}
-	inputs := map[string][]byte{"methods.json": spec.MethodsJSON(), "requests.json": spec.RequestsJSON()}
+	inputs := map[string][]byte{"methods.json": spec.MethodsJSON(), "requests.json": spec.RequestsJSON(), "inventory.json": spec.InventoryJSON()}
 	if len(inputs) != len(source.Bundles) {
 		t.Fatalf("source inventory = %+v", source.Bundles)
 	}
@@ -173,7 +173,7 @@ func TestSharedVectorInventoryMatchesPinnedSourceManifest(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if len(methods) != 22 || len(actual) != 204 || !reflect.DeepEqual(actual, source.Vectors) {
+	if len(methods) != 31 || len(actual) != 226 || !reflect.DeepEqual(actual, source.Vectors) {
 		t.Fatalf("shared vector bytes or method selection differ: %d methods, %d files", len(methods), len(actual))
 	}
 }

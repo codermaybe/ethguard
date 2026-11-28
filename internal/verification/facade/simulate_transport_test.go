@@ -16,8 +16,8 @@ import (
 	"github.com/codermaybe/ethguard"
 	"github.com/codermaybe/ethguard/config"
 	"github.com/codermaybe/ethguard/ethapi"
+	"github.com/codermaybe/ethguard/internal/methods"
 	"github.com/codermaybe/ethguard/rpc"
-	"github.com/codermaybe/ethguard/rpc/methods"
 	"github.com/ethereum/go-ethereum/core/types"
 )
 
@@ -389,7 +389,7 @@ func TestSimulateV1PendingAndForwardedModesDoNotClaimCorroboration(t *testing.T)
 		}
 	}
 
-	single, err := ethguard.DialUncorroborated(peers[0].peer.endpoint)
+	single, err := ethguard.Dial(peers[0].peer.endpoint)
 	if err != nil {
 		t.Fatal(err)
 	}

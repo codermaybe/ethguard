@@ -8,7 +8,7 @@
 | --- | --- | --- |
 | 官方 wire 合同 | 方法、结果字段、类型、required、nullable 和值约束是什么？ | 固定 execution-apis bundle 与对应版本的协议／方法说明；见 [spec 数据说明](../../internal/spec/README.md) |
 | EthGuard 保护合同 | 哪些内容经过请求绑定、内容承诺或跨源比较，可以进入受保护 Value？ | [方法合同](method-contracts.md)、适用对象检查与现行实现；历史理由见决策档案 |
-| 表示合同 | 同一个被接受的值如何编码成确定字节？ | `rpc/internal/wire` 与各对象 encoder；官方生成层见 [wire-codegen.md](wire-codegen.md) |
+| 表示合同 | 同一个被接受的值如何编码成确定字节？ | `internal/ethcodec` 与各对象 encoder；官方生成层见 [wire-codegen.md](wire-codegen.md) |
 
 项目接受政策单独说明哪些非标准拼写可兼容读入，以及哪些官方合法输入因方法语义被拒。它既不改写官方 schema，也不自动形成额外保护。
 
@@ -28,7 +28,7 @@
 - 未获保护的内容只进入声明的 Extensions／Diagnostics 或 opt-in 原始证据通道，不借 Value 暗示已佐证。
 - 多源 Corroborated 仍是 provider-backed evidence，不是 Ethereum consensus、canonicality、执行有效性或密码学 finality。
 
-完整区块现在按官方生成Block交付：`size`、内嵌交易的`from`、hash与inclusion上下文保留在逐源规范对象中，并与其余官方字段共同参与比较及提交。缺失required字段拒绝来源，不再通过geth重编码丢弃它们。`size`和`from`属于来源声明经多源比较保护，不宣称由RLP独立验真或sender recovery；交易payload hash、上下文和body承诺仍单独核对。仅number/hash的内部reference结果仍是较窄的身份表示，不冒称完整官方Block。
+完整区块现在按官方生成Block交付：`size`、内嵌交易的`from`、hash与inclusion上下文保留在逐源规范对象中，并与其余官方字段共同参与比较及提交。缺失required字段拒绝来源，不再通过geth重编码丢弃它们。`size`和`from`属于来源声明经多源比较保护，不宣称由RLP独立验真或sender recovery；交易payload hash、上下文和body承诺仍单独核对。reference 分支只承担 number/hash 的最小身份合同，公开 generic `Call(..., false)` 也可触达；该结果不具有完整官方 Block schema 保证。full／header／reference 的公开调用与 typed 接受边界由 [TestStandardBlockConsumptionBranches](../../internal/verification/facade/standard_block_contract_test.go) 分别验证。
 
 receipt 已采用官方形态与保护闭环：`from`／`effectiveGasPrice` 必须由来源提供并比较；nullable `to`／`contractAddress` 保留缺失、null、地址三个状态；可选非 nullable 字段存在时拒绝 null；`type` 受 byte 约束。`status`／`root` 至少一个存在，同时存在则独立校验、比较并保留。完整日志要求、bloom-log 一致性、请求绑定和零日志 hash 容忍仍按方法规则执行；后者不构成完整父子绑定证明。公开 typed 使用生成 `ethapi.Receipt`，保留受保护字段与 presence；私有 geth Receipt 只供算法检查，不能用它再编码主结果或丢掉 from／to。
 
@@ -60,13 +60,20 @@ receipt 已采用官方形态与保护闭环：`from`／`effectiveGasPrice` 必�
 | 受保护 feeHistory ratio | 仍执行项目 `CanonicalRatio` 的 float64 最短十进制保值 gate；`0.50` 可折合，`0.30000000000000001` 被拒。这是项目接受域限制，不是官方 number 定义 |
 | 缺失与 null | 不全局补空值。对象查询合法 null、空数组、字段缺失和显式 null 按具体方法区分；现有 optional 字段的 null→省略例外及其冲突见问题记录。Header／区块共享的null→省略例外：`baseFeePerGas`／`withdrawalsRoot`／`blobGasUsed`／`excessBlobGas`／`parentBeaconBlockRoot`／`requestsHash`／`blockAccessListHash`／`slotNumber` 在官方 schema 为 optional 且 non-nullable，而 geth 头部 marshal 对未设指针字段输出显式 null——这是 pre-fork 区块事实上的 wire 形状，按显式八项政策折合为省略；baseFeePerGas与blockAccessListHash在完整模型接入时补入，依据同一锁定geth生成编码事实，required null与其余畸形值仍拒绝，使受保护值满足对应官方schema（与 log `blockTimestamp:null`→省略同类） |
 
-标量与 JSON 原语由 internal/ethcodec 及 wire 适配维护；对象规则位于 rpc/internal/objects 与共享 internal/ethobject，公开模型来自 ethapi。算法输入视图不能冒充第二份官方模型。不要在文档再维护一份可独立漂移的字段清单。
+标量与 JSON 原语由 internal/ethcodec 维护；对象规则与请求绑定统一位于 internal/ethobject，比较 mask 与剪枝位于其 wiremask 包，公开模型来自 ethapi。算法输入视图不能冒充第二份官方模型。不要在文档再维护一份可独立漂移的字段清单。
 
 ## 5. 代表源和证据
 
 代表源是获胜簇中本次捕获成员顺序的第一个来源，不按到达先后或 source ID 排序。对已规范编码的方法，它决定审计锚点，不决定 Value 拼写。
 
 Provenance 的准入证据、withheld 字节和代表源必须同源；不得从簇内其他成员补材料。Provenance 不保存代表源 Raw，也没有为 Raw 设定的字节上限。原始证据的保留预算属于 `CallResult.Uncertain`／source-evidence 通道，不能与此混为一谈。域外字段只有达到动态门槛的单一值才能进入 Extensions，其余为 Diagnostics；它们不成为受保护 Core。
+
+完整 `eth_getBlockByHash`／`eth_getBlockByNumber(..., true)` 的非空 `Provenance` 是按 `Value.uncles` 顺序排列、经过同源准入的叔块响应 JSON 数组，元素可包含 block 形态额外字段；没有叔块时可以没有该载体。`ethadapter` 重建完整块时必须重新核验各 uncle header hash、对应 hash 与 aggregate uncle root，并复核交易／withdrawals 内容承诺。该默认载体与可选原始来源材料预算无关，不能跨方法把 opaque Provenance 当作免检对象。
+
+`ethadapter` 的纯转换直接返回 `ConversionReport`；Client 调用通过可选审计交付省略与错误，不改变此处的核心结果语义。它不在 context 上重套 `WithResult`。核心调用成功后若 geth 转换失败，外层 capture 仍保留核心成功，适配器方法返回独立转换错误；`AuditEvent` 分别携带核心结果、`CoreErr` 与 `AdapterErr`。详见[兼容政策](go-ethereum-compatibility-policy.md)。
+
+订阅审计使用独立的 `AuditEvent.Subscription`：setup／event／terminal 阶段携带固定 Basis 和对应原生 Head／Logs／Receipts 事件，包含空匹配块、撤回与证明；不伪造 unary `CallResult` 或 `Decision`。其保留、终态及关闭边界归[订阅合同](subscription-contract.md)。
+
 
 ### 数据交付与责任范围
 

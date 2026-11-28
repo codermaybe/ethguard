@@ -23,11 +23,10 @@ import (
 	"github.com/codermaybe/ethguard/config"
 	"github.com/codermaybe/ethguard/ethapi"
 	"github.com/codermaybe/ethguard/internal/jsonsafe"
+	"github.com/codermaybe/ethguard/internal/methods"
 	"github.com/codermaybe/ethguard/observe"
 	dprom "github.com/codermaybe/ethguard/observe/prometheus"
-	"github.com/codermaybe/ethguard/pool"
 	"github.com/codermaybe/ethguard/rpc"
-	"github.com/codermaybe/ethguard/rpc/methods"
 	"github.com/codermaybe/ethguard/rpctest"
 )
 
@@ -853,7 +852,7 @@ func TestFinalizedAnchoringRejectsForkAtPinnedHeight(t *testing.T) {
 // A latest reference establishment skips the lagging source, then the prepared
 // business read is pinned and contacts the complete fixed voting basis.
 func TestTipTrackingScopesLatestEstablishmentSeparatelyFromPinnedBusiness(t *testing.T) {
-	client, nodes := fleet(t, 1, 1, 3, ethguard.WithTipTracking(time.Hour, 16))
+	client, nodes := fleet(t, 1, 1, 3, ethguard.WithTipTracking(20*time.Millisecond, 16))
 	for i, node := range nodes {
 		height := fmt.Sprintf("0x%x", 100)
 		if i == 2 {
@@ -874,7 +873,7 @@ func TestTipTrackingScopesLatestEstablishmentSeparatelyFromPinnedBusiness(t *tes
 	if decision, err := callDecision(client.Call(ctx, methods.MethodChainID)); err != nil || len(decision.Support) != 3 {
 		t.Fatalf("stateless read did not use the complete basis: %+v %v", decision.Support, err)
 	}
-	client.Pool().RefreshTips(ctx)
+	waitSampledTips(t, client, []uint64{100, 100, 16})
 	before := make([]int, len(nodes))
 	for i, node := range nodes {
 		before[i] = len(node.Calls())
@@ -911,7 +910,7 @@ func TestTipTrackingScopesLatestEstablishmentSeparatelyFromPinnedBusiness(t *tes
 	// Catching up plus one probe restores eligibility for the next latest
 	// establishment without changing membership, threshold, or request replay.
 	nodes[2].Return("eth_blockNumber", "0x65")
-	client.Pool().RefreshTips(ctx)
+	waitSampledTips(t, client, []uint64{100, 100, 101})
 	beforeLaggard := len(nodes[2].Calls())
 	if _, err := client.Call(ctx, methods.MethodGetBalance, "0xaddr", "latest"); err != nil {
 		t.Fatal(err)
@@ -927,6 +926,28 @@ func TestTipTrackingScopesLatestEstablishmentSeparatelyFromPinnedBusiness(t *tes
 	}
 }
 
+func waitSampledTips(t *testing.T, client *ethguard.Client, expected []uint64) {
+	t.Helper()
+	deadline := time.After(3 * time.Second)
+	tick := time.NewTicker(5 * time.Millisecond)
+	defer tick.Stop()
+	for {
+		sources := client.Sources()
+		ready := len(sources) == len(expected)
+		for i, source := range sources {
+			ready = ready && !source.Health.TipObservedAt.IsZero() && source.Health.TipHeight == expected[i]
+		}
+		if ready {
+			return
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("tip sampler did not observe %v: %+v", expected, sources)
+		case <-tick.C:
+		}
+	}
+}
+
 // anchorEstablishments counts block-head queries across the whole fleet:
 // the wire footprint of anchor establishment.
 func anchorEstablishments(nodes []*rpctest.Node) int {
@@ -939,17 +960,6 @@ func anchorEstablishments(nodes []*rpctest.Node) int {
 		}
 	}
 	return total
-}
-
-// TestAnchorCacheTTLConfigIsRejected pins decision 0026's boundary on the
-// surviving configuration path: cross-call reference caching is retired, so
-// a configured anchor_cache_ttl must fail construction instead of silently
-// enabling a cache.
-func TestAnchorCacheTTLConfigIsRejected(t *testing.T) {
-	_, err := ethguard.New(config.Config{Upstreams: []config.Upstream{{ID: "a", Endpoint: "http://a.example"}}, AnchorCacheTTL: time.Hour.String()})
-	if err == nil || !strings.Contains(err.Error(), "anchor_cache_ttl") {
-		t.Fatalf("configured cache TTL must be rejected, got %v", err)
-	}
 }
 
 // TestGasPriceIsSelectedWithOutlierEvidence pins the Variable-group
@@ -1986,83 +1996,6 @@ func TestClientAnchorBlockHeightRidesTheEstablishment(t *testing.T) {
 	}
 	if callsAfter <= callsBefore {
 		t.Fatalf("expected a fresh establishment after cache migration: before=%d after=%d", callsBefore, callsAfter)
-	}
-}
-
-// TestTipTrackingConfigPathMatchesGoOptionPath pins decision 0004 at the
-// behavioral level: a tip_tracking section in the configuration and the
-// equivalent Go option must gate the same fleet identically — the lagging
-// source falls out of fan-outs under either construction path.
-func TestTipTrackingConfigPathMatchesGoOptionPath(t *testing.T) {
-	// The same fleet must be gated identically after real YAML parsing and
-	// Go construction. A 10-block lag survives the default 32 but not 4.
-	addresses := []string{"0x64", "0x64", "0x5a"}
-	fromYAML := func(cfg config.Config, maxBehind uint64, opts ...ethguard.Option) (*ethguard.Client, error) {
-		var input strings.Builder
-		fmt.Fprintf(&input, "chain_id: %d\ntip_tracking:\n  max_behind: %d\nupstreams:\n", cfg.ChainID, maxBehind)
-		for _, upstream := range cfg.Upstreams {
-			fmt.Fprintf(&input, "  - id: %q\n    endpoint: %q\n", upstream.ID, upstream.Endpoint)
-		}
-		parsed, err := config.ParseYAML([]byte(input.String()))
-		if err != nil {
-			return nil, err
-		}
-		return ethguard.New(parsed, opts...)
-	}
-	paths := map[string]struct {
-		build func(config.Config) (*ethguard.Client, error)
-		want  int
-	}{
-		"yaml explicit": {func(cfg config.Config) (*ethguard.Client, error) { return fromYAML(cfg, 4) }, 2},
-		"go explicit": {func(cfg config.Config) (*ethguard.Client, error) {
-			return ethguard.New(cfg, ethguard.WithTipTracking(0, 4))
-		}, 2},
-		"yaml defaults": {func(cfg config.Config) (*ethguard.Client, error) { return fromYAML(cfg, 0) }, 3},
-		"go defaults": {func(cfg config.Config) (*ethguard.Client, error) {
-			return ethguard.New(cfg, ethguard.WithTipTracking(0, 0))
-		}, 3},
-		"go overrides yaml": {func(cfg config.Config) (*ethguard.Client, error) {
-			return fromYAML(cfg, 0, ethguard.WithTipTracking(0, 4))
-		}, 2},
-		"go zero restores default": {func(cfg config.Config) (*ethguard.Client, error) {
-			return fromYAML(cfg, 4, ethguard.WithTipTracking(0, 0))
-		}, 3},
-	}
-	for name, path := range paths {
-		t.Run(name, func(t *testing.T) {
-			cfg := config.Config{ChainID: 1}
-			for i, addr := range addresses {
-				node := rpctest.NewNode(1)
-				t.Cleanup(node.Close)
-				node.Return("eth_blockNumber", addr)
-				cfg.Upstreams = append(cfg.Upstreams, config.Upstream{
-					ID:       fmt.Sprintf("node-%c", 'a'+i),
-					Endpoint: node.URL(),
-				})
-			}
-			client, err := path.build(cfg)
-			if err != nil {
-				t.Fatal(err)
-			}
-			t.Cleanup(client.Close)
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-
-			// First contact warms the connections; the probe observes them
-			// and samples the tips that arm the freshness gate.
-			if _, err := client.Pool().Collect(ctx, "eth_blockNumber", nil, pool.CollectOptions{}); err != nil {
-				t.Fatalf("warm-up collect: %v", err)
-			}
-			client.Pool().RefreshTips(ctx)
-
-			ems, err := client.Pool().Collect(ctx, "eth_blockNumber", nil, pool.CollectOptions{})
-			if err != nil {
-				t.Fatalf("gated collect: %v", err)
-			}
-			if len(ems) != path.want {
-				t.Fatalf("%s path: expected %d eligible sources, got %+v", name, path.want, ems)
-			}
-		})
 	}
 }
 

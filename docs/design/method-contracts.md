@@ -1,10 +1,10 @@
 # 方法合同
 
-状态：2026-11-20 已核对当前方法事实；接受域政策与外部证据缺口独立维护。本文统一维护跨方法保证、裁定门槛、逐方法保护范围与独立交易规则。公开类型迁移已完成；已登记的接受域差异和证据缺口仍未关闭。
+状态：2026-11-20 方法基线；2026-11-28 同步标准流水线后的已决标量接受域。接受域政策与外部证据缺口独立维护。本文统一维护跨方法保证、裁定门槛、逐方法保护范围与独立交易规则。公开类型迁移已完成；剩余接受域差异和证据缺口按下文分别维护。
 
 ## 1. 权威来源与职责
 
-方法声明位于 `rpc/methods` 各自文件；`Specs()`／Catalog 只收集，`CompilePlan` 产生唯一生产 ReadPlan。[method-rules.md](method-rules.md)是自动生成的装配索引，不手改。模块与执行流程由 [拓扑](codebase-topology.md)拥有；字段来源与生成由 [生成合同](wire-codegen.md)拥有；Value 和材料交付由 [返回值合同](return-value-design.md)拥有。
+方法声明位于 `internal/methods` 各自文件；`Specs()`／Catalog 只收集，`CompilePlan` 产生唯一生产 ReadPlan。[method-rules.md](method-rules.md)是自动生成的装配索引，不手改。模块与执行流程由 [拓扑](codebase-topology.md)拥有；字段来源与生成由 [生成合同](wire-codegen.md)拥有；Value 和材料交付由 [返回值合同](return-value-design.md)拥有。
 
 每个方法说明它返回什么事实、参考什么状态、比较和保护什么、失败如何表达，以及成本和未证明范围。schema requiredness、方法绑定、算法承诺和多源信任是不同职责；不能用其中一项通过推导其他项完成。
 
@@ -20,9 +20,9 @@
 
 ## 2. 固定成员与裁定门槛
 
-业务 Strict 在 corroboration snapshot 下使用 `Q = max(H, floor(N/2)+1)`；默认 H=2。N 是完整冻结 Basis，每个失败、gated、不可准入或未尝试成员仍占一个槽位。N<=0 的历史阈值为 1，实际以无有效响应失败；单一支持者最高 Selected，Corroborated 至少需要两个支持源。Unanimity 在同一 Q 上另要求所有 admissible 答案一致。
+SDK 构造时固定成员与 Corroboration 值配置；每次 invocation 在请求前将成员身份与规则副本冻结到 Basis。业务 Strict 与 CanonicalStrict 使用 `Q = max(H, floor(N/2)+1)`；默认 H=2。N 是完整冻结 Basis，每个失败、gated、不可准入或未尝试成员仍占一个槽位。N<=0 的历史阈值为 1，实际以无有效响应失败；单一支持者最高 Selected，Corroborated 至少需要两个支持源。Unanimity 在同一 Q 上另要求所有 admissible 答案一致。
 
-未携带 snapshot 的底层 legacy Strict 仍按自身全体一致规则执行；默认公开路径使用冻结 snapshot。Forwarded 是显式调用模式，H=0 且不进行跨源裁决，仍执行适用方法检查。Median／Local 不套 Strict 成功公式，保持 Selected。
+直接引擎／reference 消费的 raw Strict 保留其构造合同：未指定 quorum 时要求所有有效回答一致，显式选项按对应规则执行；CallRevert 的直接构造语义也保留。生产 aggregator 不再提供无配置执行分支，canonical 只接收明确 Corroboration 规则。Forwarded 的 H=0，不进行字段聚合、投影或跨源裁决，仍执行适用方法检查。Median／Local 不套 Strict 成功公式，保持 Selected；eth_call revert 不因字段观察获得额外 agreement。此次固定配置取代旧共享可变容器，见决策 0074。
 
 reference 建立有自己的候选与确认算法，见 [reference 合同](reference-freshness-policy.md)；公式相似不授权合并。健康、freshness 和来源超时不能换成员、改票权、降门槛或自动退回 Forwarded。代表源是捕获成员顺序的第一个支持者，不能靠代表源原文补回未保护内容。
 
@@ -36,7 +36,7 @@ reference 建立有自己的候选与确认算法，见 [reference 合同](refer
 
 | 方法族 | 保护与比较依据 | 明确未证明／例外 |
 | --- | --- | --- |
-| `eth_chainId`、`net_version` | 无块参考的身份事实，分别使用 hex quantity 与 decimal；net ID 不与 chain ID 互换 | 身份预检与单次裁决独立；`net_version` 的正值边界缺口已登记 |
+| `eth_chainId`、`net_version` | 无块参考的身份事实，分别使用 hex quantity 与非负 decimal；net ID 不与 chain ID 互换 | 身份预检与单次裁决独立；`net_version` 允许零，有限兼容后执行生成结果根，拒绝负非零值 |
 | balance／nonce／code／storage | 调用内共同参考上的数量或 DATA；storage word 为 32 字节 | 一致响应不等于验证 state trie proof；tag 与 pending 按专属矩阵 |
 | 完整 block（`fullTx=true`） | Header 自哈希、请求身份、完整有序交易 trie root、适用的 withdrawals root、完整 uncle 头承诺；完整官方规范对象字节作为比较键，保留并比较size与内嵌交易上下文／from声明 | 不重执行 EVM，不证明 canonical chain／finality；头中的根值受承诺不等于加载并验证其全部对应内容 |
 | header-only／`fullTx=false` block | reference可使用较窄number/hash身份；完整Header逐源在重编码前核对原声明hash与自算hash，生成Header投影检查required及fork字段，typed查询另绑定请求hash／高度 | 不外推完整body trie／withdrawals／uncle载荷承诺；纯Header不强制EmptyUncleHash，历史PoW非空uncle root合法 |
@@ -52,7 +52,7 @@ reference 建立有自己的候选与确认算法，见 [reference 合同](refer
 | 写入 | 冻结原始字节，先本地解码与签名恢复检查，再广播并按relative-trust响应分类；非法签名在业务网络前拒绝 | 不签名、替换、自动重试或管理交易生命周期；不是读取 quorum |
 | 未注册／显式 unsupported | 按 catalog 和公开入口规则处理 | “未知方法曾可 Forward”不代表当前已注册只读 `Call` 会绕过 allow-list；不能以未知转发补齐兼容缺口 |
 
-实现入口为 `rpc/internal/objects/{block,transaction,receipt,log,feehistory,accesslist}` 与 `rpc/methods`。表中的“未证明”不是待实现承诺；需要增加保证须独立评审。
+实现入口为 `internal/ethobject/{block,transaction,receipt,log,feehistory,accesslist}` 与 `internal/methods`。表中的“未证明”不是待实现承诺；需要增加保证须独立评审。
 
 ### TransactionSender 的派生保证（2026-11-23，已验收）
 
@@ -104,7 +104,7 @@ NotFound、Conflict、InsufficientSupport 和 GuaranteeNotMet 均允许继续观
 
 对象准备使用有效生成 query 模型，保留 payload hash、签名形态、from 语法、包含上下文及请求绑定检查；protected legacy 的 chainId 声明与签名派生值核对。当前不做 sender recovery 或 inclusion proof。未知 typed payload 无法验证时保留可分类拒绝与原始材料，不能因 raw 一致获得已验证交易的保证。
 
-`Candidate` 共享对象准备，两个 processor 消费同一结果；raw Normalize／Encode／Admit 适配保留。canonical 结果只在一次 invocation 内复用，不按 hash 跨调用缓存。规范 typed 值优先，仅补回官方 mask 保留而当前分支未表达的成员：开放分支中官方容忍的跨分支附加项保持；闭子对象的域外成员由 mask 隔离，差异不处罚健康。mask 成员身份不等于值已验证，不以合并掩盖覆盖缺口。
+`Candidate` 共享对象准备，两个 processor 消费同一结果；Normalize 作为方法的独立比较键能力保留，生产 canonical 执行不再装配 raw Encode／Admit 适配器。canonical 结果只在一次 invocation 内复用，不按 hash 跨调用缓存。规范 typed 值优先，仅补回官方 mask 保留而当前分支未表达的成员：开放分支中官方容忍的跨分支附加项保持；闭子对象的域外成员由 mask 隔离，差异不处罚健康。mask 成员身份不等于值已验证，不以合并掩盖覆盖缺口。
 
 独立 query 与 BlockTransaction 的有效上下文合同不同。完整块输出已经接入生成 Block；当前 block admission 仍有 transaction Candidate／私有 geth 处理，不能沿用旧“内嵌交易完全不走独立内核”的描述，也不能只凭代码复用宣称两者接受域完全一致。该关系属于后续审查，本文不修改生产行为。
 
@@ -116,7 +116,7 @@ NotFound、Conflict、InsufficientSupport 和 GuaranteeNotMet 均允许继续观
 
 新公网方言采集、更多交易类型的真实状态生命周期和完整 provider 兼容仍未完成；文档重组没有运行这些观察。验收必须覆盖合法表示聚合、真实内容不误合并、非法一致回答仍被拒绝、vendor 差异不干扰主裁决、固定分母、最终 typed 及来源材料。
 
-## 6. 待裁决与待实现事项
+## 6. 实施状态与剩余裁决
 
 | 事项 | 已知事实与处理边界 |
 | --- | --- |
@@ -124,12 +124,12 @@ NotFound、Conflict、InsufficientSupport 和 GuaranteeNotMet 均允许继续观
 | AccessList | 已消费生成的 AccessListItem／AccessListResult，方法适配仍强制 accessList 存在，并将 error／gasUsed 的 null 折合省略；保留基线别名、条目形态检查及错误顺序。适配成本单独实测，不因采用生成类型自动认定性能通过 |
 | 共享 Log | 内核保留手写 CanonicalLog 和完整字段校验；单遍尝试已恢复为基线的 Validate 与 EncodeOne 两段处理，以保留精确键准入、编码别名及错误优先级。生成 Log 的 optional／nullable 不同，后续替换仍需 query、receipt、订阅及 Pull 的等价证据 |
 | 本地观测 | local Provenance、无可尝试来源与 identity 错误优先级仍需逐模块复核，不将旧探针当现行缺陷证明 |
-| net_version | 当前方法 Normalize／Encode／typed quantity 路径没有正值 gate；public plan 实测接受零、负值、加号、前导零，拒绝 hex 字符串。是否收紧至非负或正值须单独裁决；NetworkID 与 ChainID 不强制相等，不额外查询。生成十进制模型的接受域不能直接冒充此方法现行规则 |
+| net_version（已实施） | 标准结果根接受规范非负十进制，允许零，拒绝负值、加号和冗余前导零。方法先应用具名兼容 `legacy-decimal-nonnegative-v1`，将 `+1`、前导零和 `-0` 折合为规范非负表示，再由生成结果根严格校验；负非零值与 hex 字符串拒绝。这是明确的接受域收紧。方法兼容与 typed 返回类型／范围分别负责，NetworkID 的 `*big.Int` 投影不另造标准规则；NetworkID 与 ChainID 不强制相等、不额外查询。公开边界由 [TestTypedScalarStandardAndFiniteCompatibility](../../internal/verification/facade/standard_scalar_contract_test.go) 验证 |
 
 文档基线之后的实现与审计已推进上述事项，剩余差异继续由本合同和路线图维护。静态候选不等于已经复现的漏洞或已授权的新合同；实现切片通过也不代替跨模块与成本验收。
 
 ## 7. 验证入口
 
-`eth_call` 的 execution／data 边界由 [`TestNormalizeCallOutcomeSeparatesRevertDataStates`](../../rpc/methods/eth_call_revert_test.go) 等回归验证：revert data 的缺失、null、空 DATA 与具体字节不得在没有规则依据时折合，provider 错误 message 不进入受保护 data。
+`eth_call` 的 execution／data 边界由 [`TestNormalizeCallOutcomeSeparatesRevertDataStates`](../../internal/methods/eth_call_revert_test.go) 等回归验证：revert data 的缺失、null、空 DATA 与具体字节不得在没有规则依据时折合，provider 错误 message 不进入受保护 data。
 
-完整 block 的合法空 uncle 集合与外块绑定拒绝由 [`TestEmptyBlockUnclesAreLegalAndForeignBlockIsRejected`](../../rpc/methods/content_compat_test.go) 验证。reference 的失败不触发业务 fan-out、每次调用重新建立及失败证据交付，分别由 [`TestReferenceAnchorFailureKeepsPrepareErrorAndSkipsBusinessFanout`](../../internal/verification/integration/reference_freshness_test.go)、[`TestReferenceEstablishedFreshPerCall`](../../internal/verification/integration/reference_freshness_test.go) 和 [`TestReferenceFailureEvidenceIsUnknownWithObservedAt`](../../internal/verification/integration/reference_freshness_test.go) 验证；这些测试引用说明合同落点，不表示本次文档更新重跑了对应运行场景。
+完整 block 的合法空 uncle 集合与外块绑定拒绝由 [`TestEmptyBlockUnclesAreLegalAndForeignBlockIsRejected`](../../internal/methods/content_compat_test.go) 验证。reference 的失败不触发业务 fan-out、每次调用重新建立及失败证据交付，分别由 [`TestReferenceAnchorFailureKeepsPrepareErrorAndSkipsBusinessFanout`](../../internal/verification/integration/reference_freshness_test.go)、[`TestReferenceEstablishedFreshPerCall`](../../internal/verification/integration/reference_freshness_test.go) 和 [`TestReferenceFailureEvidenceIsUnknownWithObservedAt`](../../internal/verification/integration/reference_freshness_test.go) 验证；这些测试引用说明合同落点，不表示本次文档更新重跑了对应运行场景。
