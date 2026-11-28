@@ -50,7 +50,8 @@ func TestIndependentAuditSeparatesPreCoreAndPostConversionFailures(t *testing.T)
 			default:
 				_, callErr = client.BalanceAt(ctx, common.Address{}, big.NewInt(17))
 			}
-			if len(events) != 1 || events[0].Method == "" || events[0].Duration <= 0 {
+			// An immediate local rejection can complete within one clock tick.
+			if len(events) != 1 || events[0].Method == "" || events[0].Duration < 0 {
 				t.Fatalf("one complete audit event required: %#v", events)
 			}
 			event := events[0]

@@ -2,8 +2,10 @@ package ipc
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"sync"
 	"time"
@@ -69,7 +71,11 @@ func (c *Conn) WriteMessage(ctx context.Context, payload []byte) (bool, error) {
 			<-canceled
 		}
 	}()
-	body := make([]byte, len(payload)+1)
+	size, err := writeMessageSize(len(payload))
+	if err != nil {
+		return false, err
+	}
+	body := make([]byte, size)
 	copy(body, payload)
 	body[len(payload)] = '\n'
 	n, err := c.raw.Write(body)
@@ -80,6 +86,15 @@ func (c *Conn) WriteMessage(ctx context.Context, payload []byte) (bool, error) {
 		return n > 0, fmt.Errorf("ipc: physical write: %w", err)
 	}
 	return true, nil
+}
+
+// writeMessageSize includes the trailing newline without overflowing the
+// allocation size. payloadLen comes from len and is therefore nonnegative.
+func writeMessageSize(payloadLen int) (int, error) {
+	if payloadLen > math.MaxInt-1 {
+		return 0, errors.New("ipc: message length exceeds int capacity")
+	}
+	return payloadLen + 1, nil
 }
 
 func (c *Conn) Close() error {

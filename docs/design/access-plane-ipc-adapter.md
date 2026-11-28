@@ -1,6 +1,6 @@
 # 用户接入平面、单源语义、IPC 与 `ethadapter` 设计合同
 
-状态：**S0–S6 已实施并通过本地验收**，2026-11-28；S4 的 Windows 真实 pipe 运行门禁仍待 CI，不能以交叉编译代替。全仓普通／race 与静态门禁通过；本轮代码、回归与正式合同随本次提交在本地保存，未推送。
+状态：**S0–S6 已实施并通过本地验收**，2026-11-28；`06c78cd` 已由用户推送并创建 PR #13。首轮远端 Linux 检查通过，Windows 共享双工／IPC 包 race 通过，但 adapter 测试失败、独立 named pipe 步骤跳过。Windows 审计耗时测试断言与 CodeQL 两处容量计算已修复并通过本地验收，待推送重跑。Windows 整体验收仍未关闭，详情见第 8 节。
 基线：`refactor/convergence-continuation`（`3e3f353` 之后；S0 `rpcwire.DecodeSubscriptionNotification` 与 WSS 通知版本校验及首次终止者/closing abort 合同已于 2026-11-28 完成验收，随本次提交保存）。
 范围：单源初始化与 moving-tag 业务语义、极简 `config` 与端点解析、共享双工传输核、`internal/transport/ipc`、独立公开包 `ethadapter` 与默认订阅策略。
 
@@ -370,3 +370,15 @@ Windows 真实 named pipe 测试与 Windows race CI 已落地，本环境无法�
 补丁冻结后主控执行 `ETHGUARD_REQUIRE_COMPLETE=1 go test -race -count=1 -json ./ethadapter`，208 个测试及子测试通过事件，零失败、零跳过测试，14.101s；固定版本 adapter lint 为 0 issues，vet 和 diff 检查通过。上方 10,433 事件的全仓普通／race记录对应补丁前完整基线；这次补丁由 adapter 整包与独立回归覆盖，没有重跑未修改的全仓。Windows 真实运行门禁保持开放；该补丁随本轮提交本地保存，未推送。
 
 2026-11-28 本地保存：用户已授权将本轮已验收改动提交 Git，不推送。当前 CI 的 push 仅监听 master，另支持 pull_request；功能分支单独 push 不触发该工作流，需创建／更新 PR 或进入 master 后，由 Windows job 提供真实 pipe 运行结果。
+
+### PR #13 首轮远端检查与容量修复（2026-11-28）
+
+用户随后推送 `06c78cd94718d5e835b24ba56088338b4e369dbd` 并创建 PR #13。CI run `46126656746` 的 Linux 全仓测试、Verification race 两次乱序、构建、架构隔离、格式／tidy／vet、lint 与 govulncheck 均通过。PR 按配置跳过 scheduled fuzz／deadcode；CodeRabbit 因变更文件数超过其上限而跳过，不计作独立代码审查。
+
+Windows job `140922906956` 的 build、vet 及 `go test -race ./internal/transport/streamrpc ./internal/transport/ipc` 成功；随后 `go test -race ./ethadapter` 失败，因此显式 `TestWindowsNamedPipe` 步骤被跳过。Windows IPC 整包命令包含该平台的四个真实 pipe 用例，但公开检查结果没有逐例日志；记录整包成功，保留显式 pipe 步骤与 Windows job 整体门禁。用户随后提供失败日志，明确定位到 `TestIndependentAuditSeparatesPreCoreAndPostConversionFailures/pre`：完整审计事件的 `Duration` 为 0，被测试的 `<= 0` 条件拒绝。
+
+独立复核确认生产代码正常在观察启用时调用 `time.Now()`，审计使用 `time.Since(started)`；公开合同不承诺严格正耗时，两个时钟读数相同时零值合法。补丁仅将 `ethadapter/audit_contract_test.go` 的条件改为 `< 0` 并解释时钟粒度，保留恰好一次审计、方法、错误归因与外层 capture 的全部断言，不修改生产计时。临时 Go overlay 将观测耗时固定为零时旧断言 RED、修复后四阶段 GREEN；固定为负值仍 RED。真实代码审计测试 race 连续 10 轮通过；主控 `ETHGUARD_REQUIRE_COMPLETE=1 go test -race -count=1 -json ./ethadapter` 得到 208 个测试及子测试通过事件、零失败／跳过（14.731s），固定版本 lint 为 0 issues。这些结果不代替 Windows runner 重跑。
+
+CodeQL 的 Go／Actions 分析任务执行成功，但汇总检查因三条 `go/allocation-size-overflow` 告警失败：两条指向 `rpcwire.EncodeRequest` 拼接 header、params 前缀与 params 的容量加法，一条指向 IPC `WriteMessage` 的 `len(payload)+1`。修复在每次加法前按 `math.MaxInt` 减法检查剩余空间，越界返回本地错误；不使用入站消息上限代替出站容量证明，不改变编码次序、消息字节、取消／deadline 与写进度合同。
+
+补丁只改这两个生产文件并增加两个纯整数边界测试文件。rpcwire、IPC、streamrpc、HTTP 与 WSS 整包普通／race、相关 lint／vet 及架构依赖门通过。主控以临时 Go overlay 恢复原未检查算式，在 386 实际运行下确定性复现六个边界失败；恢复修复后两组边界测试通过，全程未构造巨型 slice。此记录属于本地修复验收；用户已授权将容量保护、Windows 审计测试修正及验收记录随本次提交保存，未推送，也未获得 GitHub CodeQL 重跑或 Windows adapter 修复后的运行结果。

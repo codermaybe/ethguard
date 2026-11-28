@@ -2,13 +2,13 @@
 
 本文可直接用于重启对话：说明当前架构、验收状态和独立未决事项，不依赖旧聊天、`docs/tmp/`或`/tmp`材料。具体业务合同由末尾链接的正式文档维护。
 
-**接入平面验收（2026-11-28）：S0–S6 已实施并通过本地主控验收；S4 的 Windows 真实 pipe 运行门禁仍待 CI。** [统一接入、IPC 与 ethadapter 合同](access-plane-ipc-adapter.md)已完成统一单／多源构造、单源 moving-tag Reference、端点及配置推导、不可变订阅能力、共享 WSS／IPC 双工核、47 项精确 geth 签名、严格转换与审计、默认订阅策略及三类 channel 桥。固定成员不降级、Forwarded 诚实状态、原生撤回终止和共享 Close 完成屏障均有独立反例。两个执行者已交付并冻结代码，主控已将长期合同回写模块文档；本轮代码、回归与正式文档随本次提交在本地保存，未推送。
+**接入平面验收（2026-11-28）：S0–S6 已通过本地主控验收；PR #13 首轮 Linux 检查通过，Windows adapter 与 CodeQL 门禁尚未关闭。** [统一接入、IPC 与 ethadapter 合同](access-plane-ipc-adapter.md)已完成统一单／多源构造、单源 moving-tag Reference、端点及配置推导、不可变订阅能力、共享 WSS／IPC 双工核、47 项精确 geth 签名、严格转换与审计、默认订阅策略及三类 channel 桥。固定成员不降级、Forwarded 诚实状态、原生撤回终止和共享 Close 完成屏障均有独立反例。实现与正式文档已随 `06c78cd` 由用户推送并创建 PR。
 
 最终冻结的 841 个 Go／模块／CI 与 lint 输入无漂移。全仓普通／race 各 59 个测试包、10,433 个测试及子测试通过事件，另 8 包无测试，零失败、零跳过测试；Verification race 两次乱序复验通过。原生及 Windows build／vet、Windows 测试交叉编译、Plan 9 fallback 构建、默认／anvil lint、anvil 编译、tidy、生成 Go／audit 一致、actionlint及格式／diff门禁通过；govulncheck 为零可达漏洞。具体复现命令及范围见[最终验收记录](access-plane-ipc-adapter.md#8-最终本地验收与剩余平台门禁2026-11-28)。
 
-默认预算通过每块 240 笔交易／720 条日志、20 块原子重组和实际双请求并发，关闭后 Head／内容账本归零；测量是合成负载下的抽样保留额度，不是 RSS 或真实主网保证。验收期间发现并修复共享 typed FeeHistory 编码、streamrpc typed nil 清理、Head 主动关闭终态顺序及 Close 读锁范围回归；旧 fixture 随已冻结合同迁移。Windows 四项真实 pipe 测试和 race CI 已配置但尚未实际运行；本轮没有新增 provider 采集、真实 Anvil 执行或正式发布。默认策略与桥接证据见[订阅合同](subscription-contract.md)，设计决定见 ADR 0076–0081。下文保留前序架构阶段记录，其“本轮”范围不替代本次验收。
+默认预算通过每块 240 笔交易／720 条日志、20 块原子重组和实际双请求并发，关闭后 Head／内容账本归零；测量是合成负载下的抽样保留额度，不是 RSS 或真实主网保证。验收期间发现并修复共享 typed FeeHistory 编码、streamrpc typed nil 清理、Head 主动关闭终态顺序及 Close 读锁范围回归；旧 fixture 随已冻结合同迁移。本轮没有新增 provider 采集、真实 Anvil 执行或正式发布。默认策略与桥接证据见[订阅合同](subscription-contract.md)，设计决定见 ADR 0076–0081。下文保留前序架构阶段记录，其“本轮”范围不替代本次验收。
 
-**Git 保存与 CI：** 用户已授权本地提交，本轮实现和追加边界修复一并保存，未推送。当前工作流 push 仅监听 master，pull_request 也会触发；当前功能分支需创建／更新 PR 才能运行 Windows 实机门禁，单独 push 不足以触发。
+**PR #13 跟进：** CI run `46126656746` 的 Windows build／vet 和共享双工／IPC 整包 race 通过，adapter race 失败，后续显式 named pipe 步骤跳过。用户提供日志后，确认测试错误拒绝合法的零审计耗时，已修正为仅拒绝负值；零／负值确定性反例、审计 race 10 轮及 adapter 整包 race 208 个通过事件、lint 均通过。CodeQL 三条告警对应请求拼装与 IPC 追加换行两处容量加法，已完成整数上界检查及本地普通／race、386 边界、lint／vet 和架构门验收。用户已授权将补丁和验收记录随本次提交保存，未推送；Windows 整体与 CodeQL 结果须远端重跑确认。逐项证据见[PR 首轮远端检查与容量修复](access-plane-ipc-adapter.md#pr-13-首轮远端检查与容量修复2026-11-28)。
 
 **同日独立终审追加修复：** 已用公开入口反例复现并修复 adapter 的 earliest `-5` 漏映射及 event／terminal 审计继承 setup 取消期限；预算首因三种确定性交错符合既有合同，Err 租约仅澄清缓冲发布移交点。仅两个 adapter 生产文件改变，补丁后主控 adapter 整包 race 208 个通过事件、零失败／跳过，lint／vet通过；独立回归先红后绿。上段全仓 10,433 事件属于补丁前完整基线，不冒充再次全仓执行；追加证据见[接入设计](access-plane-ipc-adapter.md#独立终审后的边界修复2026-11-28)。
 
