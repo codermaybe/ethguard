@@ -11,7 +11,7 @@ import (
 )
 
 // Run the production candidate gate with local git/gh responses. The real jq
-// evaluates protection policies; no remote calls or publication are possible.
+// checks release responses; no remote calls or publication are possible.
 func TestReleaseCandidateGate(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("the release candidate gate runs on an Ubuntu runner")
@@ -28,7 +28,6 @@ func TestReleaseCandidateGate(t *testing.T) {
 		t.Fatal(err)
 	}
 	const sha = "cdb8f2b9b0b321136d1d6bf2245dce543b7c7693"
-	const protected = `{"protection_rules":[{"type":"required_reviewers","prevent_self_review":true,"reviewers":[{"type":"User"}]}],"deployment_branch_policy":{"custom_branch_policies":true}}`
 	type response struct {
 		out  string
 		err  string
@@ -44,7 +43,7 @@ func TestReleaseCandidateGate(t *testing.T) {
 		wantCause  string
 		noPrevious bool
 	}{
-		{name: "protected candidate"},
+		{name: "candidate without environment"},
 		{name: "first release", endpoint: "releases", response: response{out: `[[]]`}, noPrevious: true},
 		{name: "stable version", version: "v1.2.3"},
 		{name: "numeric prerelease zero", version: "v1.2.3-0"},
@@ -61,15 +60,6 @@ func TestReleaseCandidateGate(t *testing.T) {
 		{name: "master API denied", endpoint: "master", response: response{err: "gh: Resource not accessible by integration (HTTP 403)", code: 1}, wantError: "read remote master", wantCause: "HTTP 403"},
 		{name: "existing tag", endpoint: "tag", response: response{out: sha + "\trefs/tags/v0.0.1-beta.4"}, wantError: "tag v0.0.1-beta.4 already exists"},
 		{name: "tag lookup failed", endpoint: "tag", response: response{err: "fatal: remote unavailable", code: 128}, wantError: "look up remote tag", wantCause: "remote unavailable"},
-		{name: "missing environment", endpoint: "environment", response: response{err: "gh: Not Found (HTTP 404)", code: 1}, wantError: "Settings > Environments", wantCause: "HTTP 404"},
-		{name: "environment API denied", endpoint: "environment", response: response{err: "gh: Resource not accessible by integration (HTTP 403)", code: 1}, wantError: "actions: read", wantCause: "HTTP 403"},
-		{name: "no reviewers", endpoint: "environment", response: response{out: strings.ReplaceAll(protected, `[{"type":"User"}]`, `[]`)}, wantError: "required reviewer"},
-		{name: "self review allowed", endpoint: "environment", response: response{out: strings.ReplaceAll(protected, `"prevent_self_review":true`, `"prevent_self_review":false`)}, wantError: "prevent self-review"},
-		{name: "no protection rules", endpoint: "environment", response: response{out: `{"protection_rules":[],"deployment_branch_policy":{"custom_branch_policies":true}}`}, wantError: "required reviewer"},
-		{name: "any branch allowed", endpoint: "environment", response: response{out: strings.ReplaceAll(protected, `"custom_branch_policies":true`, `"custom_branch_policies":false`)}, wantError: "selected deployment branches"},
-		{name: "branch API denied", endpoint: "branches", response: response{err: "gh: Resource not accessible by integration (HTTP 403)", code: 1}, wantError: "read release deployment branch policies", wantCause: "HTTP 403"},
-		{name: "extra branch", endpoint: "branches", response: response{out: `[{"name":"master","type":"branch"},{"name":"release/*","type":"branch"}]`}, wantError: "only the master branch"},
-		{name: "master tag only", endpoint: "branches", response: response{out: `[{"name":"master","type":"tag"}]`}, wantError: "only the master branch"},
 		{name: "release API denied", endpoint: "releases", response: response{err: "gh: Resource not accessible by integration (HTTP 403)", code: 1}, wantError: "list existing releases", wantCause: "HTTP 403"},
 		{name: "draft release exists", endpoint: "releases", response: response{out: `[[{"tag_name":"v0.0.1-beta.4","draft":true}]]`}, wantError: "release v0.0.1-beta.4 already exists"},
 		{name: "release on later page exists", endpoint: "releases", response: response{out: `[[{"tag_name":"v0.0.1-beta.2","draft":false}],[{"tag_name":"v0.0.1-beta.4","draft":false}]]`}, wantError: "release v0.0.1-beta.4 already exists"},
@@ -92,13 +82,11 @@ func TestReleaseCandidateGate(t *testing.T) {
 				}
 			}
 			responses := map[string]response{
-				"head":        {out: sha},
-				"status":      {},
-				"master":      {out: sha},
-				"tag":         {code: 2},
-				"environment": {out: protected},
-				"branches":    {out: `[{"name":"master","type":"branch"}]`},
-				"releases":    {out: `[[{"tag_name":"v0.0.1-beta.2","draft":false}]]`},
+				"head":     {out: sha},
+				"status":   {},
+				"master":   {out: sha},
+				"tag":      {code: 2},
+				"releases": {out: `[[{"tag_name":"v0.0.1-beta.2","draft":false}]]`},
 			}
 			if tt.endpoint != "" {
 				responses[tt.endpoint] = tt.response
@@ -149,7 +137,7 @@ func TestReleaseCandidateGate(t *testing.T) {
 				return
 			}
 			if runErr != nil {
-				t.Fatalf("protected candidate failed: %v: %s", runErr, output)
+				t.Fatalf("candidate failed: %v: %s", runErr, output)
 			}
 			previous := "v0.0.1-beta.2"
 			if tt.noPrevious {
@@ -174,8 +162,6 @@ case "${0##*/}:$*" in
   'git:status --porcelain --untracked-files=all') response=status ;;
   'git:ls-remote --exit-code --tags https://github.com/fixture/ethguard.git refs/tags/'*) response=tag ;;
   'gh:api repos/fixture/ethguard/git/ref/heads/master --jq .object.sha') response=master ;;
-  'gh:api repos/fixture/ethguard/environments/release') response=environment ;;
-  'gh:api repos/fixture/ethguard/environments/release/deployment-branch-policies --jq .branch_policies') response=branches ;;
   'gh:api repos/fixture/ethguard/releases?per_page=100 --paginate --slurp') response=releases ;;
   *) printf 'unexpected release tool invocation: %s %s\n' "$0" "$*" >&2; exit 97 ;;
 esac

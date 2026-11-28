@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Run from the release checkout root. This gate reads repository state only;
-# success evidence is written after every candidate and approval check passes.
+# success evidence is written after every candidate check passes.
 set -euo pipefail
 
 fail() {
@@ -50,21 +50,6 @@ case "$tag_status" in
     *) fail "cannot look up remote tag $VERSION; inspect the git error above and check repository access" ;;
 esac
 
-if ! environment="$(gh api "repos/$GITHUB_REPOSITORY/environments/release")"; then
-    fail 'cannot read the release Environment; confirm Settings > Environments contains release, then check repository access and prepare job actions: read permission (see the API error above)'
-fi
-if ! jq -e '
-    any(.protection_rules[]; .type == "required_reviewers" and .prevent_self_review == true and (.reviewers | length) > 0)
-    and .deployment_branch_policy.custom_branch_policies == true
-' <<< "$environment" >/dev/null; then
-    fail 'release Environment must have at least one required reviewer, prevent self-review, and use selected deployment branches; configure these in Settings > Environments > release'
-fi
-if ! branches="$(gh api "repos/$GITHUB_REPOSITORY/environments/release/deployment-branch-policies" --jq .branch_policies)"; then
-    fail 'cannot read release deployment branch policies; check the release Environment and prepare job actions: read permission'
-fi
-if ! jq -e 'length == 1 and .[0].name == "master" and .[0].type == "branch"' <<< "$branches" >/dev/null; then
-    fail 'release Environment must allow only the master branch; configure one master branch rule and no tag or additional branch rules'
-fi
 if ! releases="$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" --paginate --slurp)"; then
     fail 'cannot list existing releases; check repository access and contents: read permission'
 fi

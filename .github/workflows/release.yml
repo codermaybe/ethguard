@@ -1,4 +1,4 @@
-# Release a fixed, prevalidated commit; creating a public tag is the last gate.
+# Manual dispatch authorizes publishing a fixed commit after validation.
 name: release
 
 on:
@@ -22,9 +22,6 @@ jobs:
     if: github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
     timeout-minutes: 35
-    permissions:
-      contents: read
-      actions: read
     outputs:
       sha: ${{ steps.candidate.outputs.sha }}
       version: ${{ steps.candidate.outputs.version }}
@@ -42,7 +39,7 @@ jobs:
           distribution: goreleaser
           version: v2.20.0
           install-only: true
-      - name: validate release candidate and approval protection
+      - name: validate release candidate
         id: candidate
         env:
           VERSION: ${{ inputs.version }}
@@ -96,7 +93,7 @@ jobs:
           if [ -n "$PREVIOUS" ]; then range="$PREVIOUS..$SHA"; fi
           git log --format='- %s (%h)' "$range" >> release-evidence/notes.md
           if [[ "$VERSION" == *-* ]]; then
-            printf '\n## Compatibility boundary\n\nExperimental prerelease; not an EthClient: complete release. Requires Go 1.26.11.\nSimulateV1 accepts the generated ethapi.SimulateV1Request payload and ethapi.SimulateBlockReference base (nil resolves latest); per-method simulation semantics and real provider evidence remain follow-up verification, not type migration. Public CallMsg, FeeHistory, AccessListResult, and SyncProgress use generated ethapi types with breaking Go signature and field changes. SyncProgress provider counters remain in auxiliary and raw source evidence; the generated type has no Done method. Receipt results now require from/effectiveGasPrice, validate byte type, and preserve nullable-address presence; malformed sources remain in the fixed denominator. Other return-shape and external-evidence gaps remain in the compatibility contracts.\nSee the API difference report in the approved workflow artifact before upgrading.\n' >> release-evidence/notes.md
+            printf '\n## Compatibility boundary\n\nExperimental prerelease; not an EthClient: complete release. Requires Go 1.26.11.\nSimulateV1 accepts the generated ethapi.SimulateV1Request payload and ethapi.SimulateBlockReference base (nil resolves latest); per-method simulation semantics and real provider evidence remain follow-up verification, not type migration. Public CallMsg, FeeHistory, AccessListResult, and SyncProgress use generated ethapi types with breaking Go signature and field changes. SyncProgress provider counters remain in auxiliary and raw source evidence; the generated type has no Done method. Receipt results now require from/effectiveGasPrice, validate byte type, and preserve nullable-address presence; malformed sources remain in the fixed denominator. Other return-shape and external-evidence gaps remain in the compatibility contracts.\nSee the API difference report in the prepared workflow artifact before upgrading.\n' >> release-evidence/notes.md
           fi
           payload_sha="$(sha256sum release-evidence/payload.tar)"
           payload_sha="${payload_sha%% *}"
@@ -128,11 +125,10 @@ jobs:
         run: rm -rf -- dist release-evidence
 
   publish:
-    name: approve and publish verified payload
+    name: publish verified payload
     needs: prepare
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    environment: release
     permissions:
       contents: write
     steps:
@@ -144,7 +140,7 @@ jobs:
         with:
           name: release-candidate-${{ github.run_id }}-${{ github.run_attempt }}
           path: candidate/release-evidence
-      - name: verify approved evidence
+      - name: verify prepared evidence
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
           SHA: ${{ needs.prepare.outputs.sha }}

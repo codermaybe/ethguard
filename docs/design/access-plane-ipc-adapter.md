@@ -390,4 +390,4 @@ CodeQL 的 Go／Actions 分析任务执行成功，但汇总检查因三条 `go/
 
 Windows job `140931942348` 的 build、vet、streamrpc／IPC race、adapter race 及独立 `go test -race ./internal/transport/ipc -run '^TestWindowsNamedPipe' -count=1 -v` 步骤全部成功。此次为真实 Windows runner 运行证据，关闭此前平台门禁；不扩展为所有 execution 客户端的 IPC 互操作保证。
 
-用户于 2026-11-28 合并 PR #13，master 合并提交为 `7fdda4b1a956dc2b370eb56a8a0917fcb941886c`，文件树与已验收的 `3fdb6b7` 相同，保留阶段历史。根目录中英文 README 随 beta.4 准备更新公开入口、示例和保证边界。beta.4 tag 尚未创建；最终文档需推送并完成该 master 提交的 CI，再按发布合同手动启动 `release`，固定最终 SHA 并审批候选产物。本记录不把 PR CI 当作发布工作流已经通过。
+用户于 2026-11-28 合并 PR #13，master 合并提交为 `7fdda4b1a956dc2b370eb56a8a0917fcb941886c`，文件树与已验收的 `3fdb6b7` 相同，保留阶段历史。根目录中英文 README 随 beta.4 准备更新公开入口、示例和保证边界。beta.4 tag 尚未创建；最终文档需推送并完成该 master 提交的 CI，再按发布合同手动启动 `release`，固定最终 SHA，经自动质量和产物校验通过后发布；单维护者流程不再要求第二人审批。本记录不把 PR CI 当作发布工作流已经通过。

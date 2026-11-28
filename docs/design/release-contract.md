@@ -1,6 +1,6 @@
 # Release Contract（发布门禁与发布契约）
 
-状态：**2026-11-28 标准同步工具纳入发布，现行发布流程**。本文件冻结发布入口、前置条件、门禁覆盖范围、产物
+状态：**2026-11-28 单维护者手动发布流程**。本文件冻结发布入口、前置条件、门禁覆盖范围、产物
 与发布语义、失败处置，并登记本轮实际证据。业务完成度见
 [project-roadmap.md](project-roadmap.md)；本文件不维护第二份业务计划或状态台账。
 
@@ -18,25 +18,22 @@
   `master` HEAD，然后从正式 checkout 执行验证；不能用未提交的本地结果替代。
 - **版本**：`vMAJOR.MINOR.PATCH`，可带预发布标识；数字标识不允许前导零。
   含 `-` 的版本标记为 prerelease 且不设为 Latest。现有 tag / Release 一律拒绝覆盖。
-- **保护**：仓库必须先配置 `release` Environment，至少一个 required reviewer，
-  禁止发起人自审，并只允许 `master` 部署。准备阶段检查这些条件，未配置即失败；
-  不能依赖 GitHub 自动创建的空 Environment 充当保护。
-- **首次配置**：在仓库 Settings → Environments 新建名为 `release` 的环境，设置
-  required reviewers 并启用 Prevent self-review；Deployment branches and tags 选择
-  Selected branches and tags，仅添加类型为 Branch、名称为 `master` 的规则。
-  审批者须能由本次 workflow 发起人之外的人担任；仅创建同名空环境不满足合同。
-- **权限**：准备阶段只有 `contents: read` 和 `actions: read`，后者用于读取环境及其
-  部署分支规则；唯一 `contents: write` job 位于受保护
-  Environment 之后。审批前只生成 Actions artifact，不创建 tag、draft 或公开 Release。
+- **发布授权**：仓库由单一维护者管理；维护者在 `master` 手动 dispatch 并填写版本，
+  即授权该固定提交在自动验证通过后发布。工作流不依赖 `release` Environment，
+  不要求第二人审批，也不提供审批模式开关。合并或推送 `master` 只触发 CI，发布仍需
+  维护者主动发起；不预先手工创建目标 tag。
+- **权限**：准备阶段只有 `contents: read`；唯一 `contents: write` job 通过
+  `needs: prepare` 等待全部准备检查成功。准备阶段只生成 Actions artifact，
+  不创建 tag、draft 或公开 Release。
 - **顺序**：固定 SHA → 质量门禁、API 报告、fuzz、构建与 smoke → 不可变候选 artifact
-  → 人工审批 → 下载并复验相同产物 → 创建 tag 和 draft → 上传与远端校验 → 公开 Release。
-  发布 job 不重新编译；审批者需审阅 API 报告、提交及 notes。
+  → 下载并复验相同产物 → 创建 tag 和 draft → 上传与远端校验 → 公开 Release。
+  发布 job 不重新编译；维护者在发起前确认提交与版本，API 报告及 notes 随运行留存。
 
 ## 2. 正式入口与门禁覆盖
 
 | 入口 | 作用 | 输出与限制 |
 | --- | --- | --- |
-| `bash scripts/release_candidate.sh` | 固定 SHA、清洁 checkout、版本与远端 tag / Release 不存在、环境审批及分支保护检查 | 仅执行远端读取；全部通过才写候选证据与 Actions 输出；API 失败标明资源及配置排查方向 |
+| `bash scripts/release_candidate.sh` | 固定 SHA 与远端 master 一致、清洁 checkout、版本与远端 tag / Release 不存在检查 | 仅执行远端读取；全部通过才写候选证据与 Actions 输出；API 失败标明资源及排查方向 |
 | `bash scripts/release_check.sh` | 格式、tidy、公开生成类型新鲜度、vet、固定版本默认/anvil lint、anvil纯编译、build、全仓 race、可达漏洞扫描 | 不是离线流程；需要 `vuln.go.dev`；不代表完整发布验证 |
 | `bash scripts/lint.sh` | 固定golangci-lint 2.15.0，默认与anvil全仓扫描 | 生产、测试、cmd/testkit、生成器与生成代码全部纳入；没有本地链或provider请求 |
 | `bash scripts/release_api_diff.sh PREVIOUS_TAG` | 上一已发布版本与当前整模块公共 API 对比，包含删除的包 | `release-evidence/`；API 变化仅报告，工具、下载与导出错误失败 |
@@ -52,8 +49,8 @@ Go 和 jq。工作流使用 Ubuntu runner，另使用预装的 gh、jq 和 tar�
 `release_check.sh` 与 CI 的独立矩阵允许重复，但门禁语义必须同步。
 
 候选校验的回归测试执行实际 `release_candidate.sh`，以隔离的只读 `git` / `gh`
-响应覆盖缺失环境、权限错误、保护不足、重复版本和成功输出。这些测试随 Go 测试运行，
-需要 Bash 与 jq；它们不替代目标仓库的真实 Environment 配置或远端发布验收。
+响应覆盖无 Environment 也能准备候选、权限错误、提交变化、重复版本和成功输出。
+这些测试随 Go 测试运行，需要 Bash 与 jq；它们不替代远端发布验收。
 checkout 状态检查同时要求 `git status` 成功和输出为空，不能把命令失败的空输出
 解释为干净工作区。
 
@@ -141,9 +138,9 @@ GoReleaser 使用官方 schema 和默认构建隔离目录；显式保留 `-trim
 ## 5. 证据边界与失败处置
 
 本地 `--snapshot` 能证明配置、编译、checksum 和入口运行，不能证明 GitHub 权限、
-Environment 审批、远端资产上传或 CDN 行为。远端发布成功必须另附实际 workflow run。
+远端资产上传或 CDN 行为。远端发布成功必须另附实际 workflow run。
 准备失败可在修复后的新提交重新 dispatch；创建 tag 后失败按第 7 节处理，不移动 tag。
-整模块 API 差异是审批输入，不是兼容性通过证明；预发布 notes 必须保留当前外部兼容
+整模块 API 差异用于升级审阅，不是兼容性通过证明；预发布 notes 必须保留当前外部兼容
 缺口。稳定发布仍需默认严格方法门禁通过。
 
 ## 6. 日期化发布证据
@@ -159,6 +156,7 @@ Environment 审批、远端资产上传或 CDN 行为。远端发布成功必须
 | 2026-11-09 GoReleaser 接入 | 本地15项构建／checksum、5入口 smoke、候选打包解包／只读复验、正式 API 差异与质量脚本曾通过 | 没有执行远端 Environment 审批／上传或真实 RPC canary，不宣称 EthClient complete |
 | 同批 fuzz 诊断 | duration 到期错误未生成反例；8-worker 最小化 EOF 根因未定，改为第2节计数预算、2-worker串行 | 不忽略引擎错误、不减少目标执行次数；参数与当前入口以第2节为准 |
 | 2026-11-28 beta.4，`cdb8f2b` | release run `46136001861` 在候选与审批保护校验返回 `gh: Not Found (HTTP 404)`；查询仓库环境列表仅有 `copilot`，`release` 环境查询返回 404。补充环境配置说明、明确只读权限及候选校验错误上下文 | GoReleaser 仅安装成功，质量、fuzz、构建与发布步骤未运行；未创建 beta.4 tag / Release。本地回归不能代替配置环境后重新 dispatch 的远端证据 |
+| 2026-11-28 beta.4，`6a0f392` | release run `46139411620` 明确报告缺少 `release` Environment；维护者确认长期单人管理，决定取消双人审批及环境配置前置，改为手动 dispatch 授权、自动验证通过后发布 | 取代旧环境审批合同；保留固定 SHA、版本唯一、质量门禁和产物校验。本次失败未进入构建或发布；新流程仍须重新 dispatch 取得远端证据 |
 
 beta.3 的脚本执行位失败见下一节。失败 tag 的不可变性与 SHA／产物绑定，是保留这些历史摘要的原因；阶段完成清单、逐条本地命令输出不再复制成当前规范。
 

@@ -8,7 +8,7 @@
 
 默认预算通过每块 240 笔交易／720 条日志、20 块原子重组和实际双请求并发，关闭后 Head／内容账本归零；测量是合成负载下的抽样保留额度，不是 RSS 或真实主网保证。验收期间发现并修复共享 typed FeeHistory 编码、streamrpc typed nil 清理、Head 主动关闭终态顺序及 Close 读锁范围回归；旧 fixture 随已冻结合同迁移。本轮没有新增 provider 采集、真实 Anvil 执行或正式发布。默认策略与桥接证据见[订阅合同](subscription-contract.md)，设计决定见 ADR 0076–0081。下文保留前序架构阶段记录，其“本轮”范围不替代本次验收。
 
-**PR #13 复验：** 修复提交 `3fdb6b7` 的 CI run `46129611512` 全部必需检查通过，CodeQL 汇总成功。Windows job `140931942348` 的 adapter race 与独立真实 named pipe 步骤均成功，关闭首轮失败；完整经过见[复验与合并记录](access-plane-ipc-adapter.md#pr-13-复验通过与合入-master2026-11-28)。beta.4 发布绑定最终 master SHA，需要另跑发布质量门禁、API diff、fuzz、构建及 Environment 审批。
+**PR #13 复验：** 修复提交 `3fdb6b7` 的 CI run `46129611512` 全部必需检查通过，CodeQL 汇总成功。Windows job `140931942348` 的 adapter race 与独立真实 named pipe 步骤均成功，关闭首轮失败；完整经过见[复验与合并记录](access-plane-ipc-adapter.md#pr-13-复验通过与合入-master2026-11-28)。beta.4 发布绑定最终 master SHA，由维护者手动启动 release，另跑发布质量门禁、API diff、fuzz 与构建，全部通过后自动发布；不依赖 Environment 或第二人审批。
 
 **同日独立终审追加修复：** 已用公开入口反例复现并修复 adapter 的 earliest `-5` 漏映射及 event／terminal 审计继承 setup 取消期限；预算首因三种确定性交错符合既有合同，Err 租约仅澄清缓冲发布移交点。仅两个 adapter 生产文件改变，补丁后主控 adapter 整包 race 208 个通过事件、零失败／跳过，lint／vet通过；独立回归先红后绿。上段全仓 10,433 事件属于补丁前完整基线，不冒充再次全仓执行；追加证据见[接入设计](access-plane-ipc-adapter.md#独立终审后的边界修复2026-11-28)。
 
